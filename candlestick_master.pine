@@ -1,0 +1,300 @@
+//@version=6
+// ─────────────────────────────────────────────────────────────────────────────
+// CANDLESTICK MASTER — 45 PATTERNS  (Batch 1: patterns 01–10 + BEC preview)
+//
+// Educational pattern-recognition indicator. Detects candlestick patterns ONLY
+// (no trade signals, no strategy). Works on the TradingView free plan.
+//
+// HOW IT WORKS
+//   • Anatomy engine     : OHLC-based candle measurements, ATR-scaled.
+//   • Context engine     : prior trend (EMA20/50 + slope) and pivot S/R zones.
+//   • Confirmation engine: confirmation candle, RSI (+divergence), volume,
+//                          20 EMA reclaim — each toggleable, scored into
+//                          Validation = WEAK / MODERATE / STRONG.
+//   • Timeframe gating   : each pattern lists its ideal TradingView timeframes
+//                          ("1","2","3","5","15","30","60","120","240","D","W")
+//                          and is only evaluated/drawn on those charts.
+//   • Display            : abbreviation-only label; hover (desktop) or
+//                          press-and-hold (mobile) shows the full dynamic
+//                          checklist tooltip.
+//
+// EXTENDING WITH BATCH 2+ : add a shape condition in the DETECTION section and
+// one fire() call — the engines handle everything else. Ideal timeframes are
+// the "60,240,D"-style strings in each fire() call; edit them freely.
+//
+// NOTE: forex volume on TradingView is TICK volume, not real traded volume.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Candlestick Master — 45 Patterns", "CandleMaster45", overlay = true, max_labels_count = 500)
+
+// ═════════════════════════════════ INPUTS ══════════════════════════════════
+grpCat = "Filters — Category"
+showBullRev = input.bool(true,  "Bullish reversal patterns",        group = grpCat)
+showBearRev = input.bool(true,  "Bearish reversal patterns",        group = grpCat)
+showCont    = input.bool(true,  "Continuation / momentum patterns", group = grpCat)
+showInd     = input.bool(true,  "Indecision / exhaustion patterns", group = grpCat)
+
+grpTier = "Filters — Priority Tier"
+tierMust = input.bool(true,  "Must",      group = grpTier)
+tierImp  = input.bool(true,  "Important", group = grpTier)
+tierRare = input.bool(false, "Rare",      group = grpTier)
+
+grpStr = "Filters — Structure"
+structSingle = input.bool(true, "Single candle",         group = grpStr)
+structDouble = input.bool(true, "Double candle",         group = grpStr)
+structTriple = input.bool(true, "Triple & multi candle", group = grpStr)
+
+grpTf = "Timeframe Gating"
+ignoreTf = input.bool(false, "Ignore timeframe filter (show everywhere)", group = grpTf, tooltip = "For testing only. When OFF, each pattern appears only on its ideal chart timeframes.")
+
+grpConf = "Confirmation Engine"
+confirmedOnly = input.bool(false, "Show only confirmed patterns",  group = grpConf, tooltip = "Draw a pattern only after the next candle closes beyond the pattern high/low.")
+confWindow    = input.int(3,     "Confirmation window (bars)",     group = grpConf, minval = 1, maxval = 10, tooltip = "Bars allowed for the confirmation close before the pattern expires.")
+useLoc        = input.bool(true, "Check: support/resistance zone", group = grpConf)
+useRSI        = input.bool(true, "Check: RSI level / divergence",  group = grpConf)
+useEMA        = input.bool(true, "Check: 20 EMA reclaim/loss",     group = grpConf)
+useVol        = input.bool(true, "Check: volume spike (tick vol)", group = grpConf)
+volMult       = input.float(1.2, "Volume spike multiplier",        group = grpConf, minval = 0.5, step = 0.1)
+rsiOS         = input.int(35,    "RSI oversold level",             group = grpConf, minval = 1,  maxval = 50)
+rsiOB         = input.int(65,    "RSI overbought level",           group = grpConf, minval = 50, maxval = 99)
+
+grpCtx = "Context Engine"
+trendLb   = input.int(5,     "Trend slope lookback (bars)",      group = grpCtx, minval = 1)
+pivLen    = input.int(5,     "Pivot length (S/R + divergence)",  group = grpCtx, minval = 2)
+zoneMult  = input.float(0.5, "S/R zone width (x ATR)",           group = grpCtx, minval = 0.1, step = 0.1)
+divWindow = input.int(12,    "RSI divergence valid for (bars)",  group = grpCtx, minval = 1)
+
+grpP1 = "Patterns — Single Candle (01–10)"
+p01 = input.bool(true, "01 Hammer (HAM)",            group = grpP1)
+p02 = input.bool(true, "02 Hanging Man (HGM)",       group = grpP1)
+p03 = input.bool(true, "03 Inverted Hammer (IH)",    group = grpP1)
+p04 = input.bool(true, "04 Shooting Star (SST)",     group = grpP1)
+p05 = input.bool(true, "05 Bullish Marubozu (BUM)",  group = grpP1)
+p06 = input.bool(true, "06 Bearish Marubozu (BEM)",  group = grpP1)
+p07 = input.bool(true, "07 Doji (DOJ)",              group = grpP1)
+p08 = input.bool(true, "08 Dragonfly Doji (DFD)",    group = grpP1)
+p09 = input.bool(true, "09 Gravestone Doji (GSD)",   group = grpP1)
+p10 = input.bool(true, "10 Spinning Top (SPT)",      group = grpP1)
+
+grpP2 = "Patterns — Double Candle (preview)"
+p13 = input.bool(true, "13 Bullish Engulfing (BEC)", group = grpP2)
+
+// ════════════════════════════ ANATOMY ENGINE ═══════════════════════════════
+atrV    = ta.atr(14)
+body    = math.abs(close - open)
+rng     = high - low
+upW     = high - math.max(close, open)
+loW     = math.min(close, open) - low
+bullC   = close > open
+bearC   = close < open
+bodyPct = rng > 0 ? body / rng : 0.0
+
+minRange  = rng >= atrV * 0.5           // ignore micro/noise candles
+longBody  = body >= atrV * 0.8
+smallBody = body <= atrV * 0.35
+
+// Gaps and previous-candle midpoint relations (used by later batches too)
+gapUp             = open > high[1]
+gapDown           = open < low[1]
+bodyGapUp         = open > math.max(open[1], close[1])
+bodyGapDown       = open < math.min(open[1], close[1])
+prevBodyMid       = (open[1] + close[1]) / 2
+closeAbovePrevMid = close > prevBodyMid
+closeBelowPrevMid = close < prevBodyMid
+
+// ════════════════════════════ CONTEXT ENGINE ═══════════════════════════════
+emaFast = ta.ema(close, 20)
+emaSlow = ta.ema(close, 50)
+upTrend   = emaFast > emaSlow and emaSlow > emaSlow[trendLb]
+downTrend = emaFast < emaSlow and emaSlow < emaSlow[trendLb]
+
+// Pivot-based support / resistance zones
+pl = ta.pivotlow(low, pivLen, pivLen)
+ph = ta.pivothigh(high, pivLen, pivLen)
+var supLevels = array.new<float>()
+var resLevels = array.new<float>()
+if not na(pl)
+    supLevels.push(pl)
+    if supLevels.size() > 12
+        supLevels.shift()
+if not na(ph)
+    resLevels.push(ph)
+    if resLevels.size() > 12
+        resLevels.shift()
+
+nearLevel(array<float> lvls, float price, float tol) =>
+    hit = false
+    if lvls.size() > 0
+        for i = 0 to lvls.size() - 1
+            if math.abs(price - lvls.get(i)) <= tol
+                hit := true
+    hit
+
+zoneTol = atrV * zoneMult
+nearSup = nearLevel(supLevels, low, zoneTol)
+nearRes = nearLevel(resLevels, high, zoneTol)
+
+// ═════════════════════════ CONFIRMATION ENGINE ═════════════════════════════
+rsiVal = ta.rsi(close, 14)
+volSma = ta.sma(volume, 20)
+volOkG = not na(volume) and not na(volSma) and volume > volSma * volMult
+volNa  = na(volume) or na(volSma)
+
+// RSI divergence via price/RSI pivots
+var float lastPL  = na
+var float lastPLr = na
+var float lastPH  = na
+var float lastPHr = na
+var int bullDivBar = na
+var int bearDivBar = na
+if not na(pl)
+    if not na(lastPL) and pl < lastPL and rsiVal[pivLen] > lastPLr
+        bullDivBar := bar_index
+    lastPL  := pl
+    lastPLr := rsiVal[pivLen]
+if not na(ph)
+    if not na(lastPH) and ph > lastPH and rsiVal[pivLen] < lastPHr
+        bearDivBar := bar_index
+    lastPH  := ph
+    lastPHr := rsiVal[pivLen]
+bullDivActive = not na(bullDivBar) and bar_index - bullDivBar <= divWindow
+bearDivActive = not na(bearDivBar) and bar_index - bearDivBar <= divWindow
+
+// ═══════════════════ PATTERN INSTANCE / LABEL SYSTEM ═══════════════════════
+colBull = color.new(#089981, 0)
+colBear = color.new(#f23645, 0)
+colNeut = color.new(#787b86, 0)
+SEP = "─────────────"
+
+type PatternInst
+    label  lb = na
+    int    barIdx
+    float  patHigh
+    float  patLow
+    int    dir       // 1 bullish, -1 bearish, 0 neutral/info
+    int    state     // 0 detected, 1 confirmed, 2 failed, 3 info, 4 expired
+    string abbr
+    string pname
+    string bodyTxt
+    color  colMain
+
+method tipText(PatternInst this) =>
+    st = switch this.state
+        0 => "DETECTED — AWAITING CONFIRMATION"
+        1 => "CONFIRMED ✓"
+        2 => "FAILED ✗ (invalidation level hit)"
+        3 => "NEUTRAL — INFORMATIONAL"
+        => "EXPIRED — no confirmation in window"
+    this.abbr + "\n" + this.pname + "\nStatus: " + st + "\n" + this.bodyTxt
+
+method draw(PatternInst this) =>
+    isBear = this.dir == -1
+    this.lb := label.new(this.barIdx, isBear ? this.patHigh : this.patLow, this.abbr, xloc = xloc.bar_index, yloc = yloc.price, color = this.colMain, style = isBear ? label.style_label_down : label.style_label_up, textcolor = color.white, size = size.small, tooltip = this.tipText())
+
+var insts = array.new<PatternInst>()
+
+// ──────────────────────────── fire() — registry ─────────────────────────────
+// Runs shared filters + confirmation checks, builds the tooltip, and draws
+// the abbreviation label. Every pattern goes through this single function.
+//   cat: "BR" bull reversal · "SR" bear reversal · "CT" continuation · "IN" indecision
+//   tier: "M" Must · "I" Important · "R" Rare
+fire(bool patOn, int structN, string tier, string cat, int dir, string tfList, string abbr, string pname, string trendTxt, string desc, string sltp, string reli, string tfHuman, float pHigh, float pLow) =>
+    catOn    = cat == "BR" ? showBullRev : cat == "SR" ? showBearRev : cat == "CT" ? showCont : showInd
+    tierOn   = tier == "M" ? tierMust : tier == "I" ? tierImp : tierRare
+    structOn = structN == 1 ? structSingle : structN == 2 ? structDouble : structTriple
+    tfOn     = ignoreTf or str.contains("," + tfList + ",", "," + timeframe.period + ",")
+    if patOn and catOn and tierOn and structOn and tfOn
+        // per-direction confirmation checks
+        locOk = dir == 1 ? nearSup : dir == -1 ? nearRes : nearSup or nearRes
+        rsiOk = dir == 1 ? bullDivActive or rsiVal < rsiOS : dir == -1 ? bearDivActive or rsiVal > rsiOB : bullDivActive or bearDivActive or rsiVal < rsiOS or rsiVal > rsiOB
+        emaOk = dir == 1 ? close > emaFast : dir == -1 ? close < emaFast : false
+        locTxt = dir >= 0 and locOk and nearSup ? "Location: Support zone ✓" : dir == -1 and locOk ? "Location: Resistance zone ✓" : locOk ? "Location: Resistance zone ✓" : "Location: No key zone nearby ✗"
+        rsiTxt = dir == 1 ? (bullDivActive ? "RSI: Bullish divergence ✓" : rsiVal < rsiOS ? "RSI: Oversold ✓" : "RSI: Neutral ✗") : dir == -1 ? (bearDivActive ? "RSI: Bearish divergence ✓" : rsiVal > rsiOB ? "RSI: Overbought ✓" : "RSI: Neutral ✗") : (rsiOk ? "RSI: At extreme / divergence ✓" : "RSI: " + str.tostring(rsiVal, "#.#") + " neutral ✗")
+        emaTxt = dir == 1 ? (emaOk ? "EMA: Reclaiming 20 EMA ✓" : "EMA: Below 20 EMA ✗") : dir == -1 ? (emaOk ? "EMA: Losing 20 EMA ✓" : "EMA: Above 20 EMA ✗") : "EMA: n/a for neutral pattern"
+        volTxt = volNa ? "Volume: n/a on this feed" : volOkG ? "Volume: Above average ✓ (tick vol)" : "Volume: Below average ✗ (tick vol)"
+        // score enabled checks -> validation
+        nChecks = (useLoc ? 1 : 0) + (useRSI ? 1 : 0) + (dir != 0 and useEMA ? 1 : 0) + (useVol and not volNa ? 1 : 0)
+        nPassed = (useLoc and locOk ? 1 : 0) + (useRSI and rsiOk ? 1 : 0) + (dir != 0 and useEMA and emaOk ? 1 : 0) + (useVol and not volNa and volOkG ? 1 : 0)
+        vali = nChecks == 0 ? "N/A (checks disabled)" : nPassed * 4 >= nChecks * 3 ? "STRONG" : nPassed * 2 >= nChecks ? "MODERATE" : "WEAK"
+        checks = "Pattern: Valid ✓\n" + trendTxt + (useLoc ? "\n" + locTxt : "") + (useRSI ? "\n" + rsiTxt : "") + (useEMA ? "\n" + emaTxt : "") + (useVol ? "\n" + volTxt : "")
+        bodyTxt = SEP + "\n" + checks + "\n" + SEP + "\nValidation: " + vali + "\n" + SEP + "\n" + desc + "\n" + sltp + "\nReliability: " + reli + " · Ideal TF: " + tfHuman
+        inst = PatternInst.new(barIdx = bar_index, patHigh = pHigh, patLow = pLow, dir = dir, state = dir == 0 ? 3 : 0, abbr = abbr, pname = pname, bodyTxt = bodyTxt, colMain = dir == 1 ? colBull : dir == -1 ? colBear : colNeut)
+        if not confirmedOnly or dir == 0
+            inst.draw()
+        insts.push(inst)
+        if insts.size() > 450
+            old = insts.shift()
+            if not na(old.lb)
+                label.delete(old.lb)
+
+// ═════════════════════════ DETECTION — BATCH 1 ═════════════════════════════
+// Shape conditions (pure OHLC anatomy — candle color never defines validity
+// except where the pattern definition itself fixes it, e.g. marubozu/engulfing)
+hammerShape  = minRange and body > rng * 0.10 and loW >= 2 * body and upW <= rng * 0.15
+invHamShape  = minRange and body > rng * 0.10 and upW >= 2 * body and loW <= rng * 0.15
+maruBullShp  = bullC and body >= atrV * 0.8 and body >= rng * 0.9
+maruBearShp  = bearC and body >= atrV * 0.8 and body >= rng * 0.9
+dojiShape    = rng > 0 and body <= rng * 0.10
+dragonShape  = dojiShape and minRange and loW >= rng * 0.6 and upW <= rng * 0.15
+graveShape   = dojiShape and minRange and upW >= rng * 0.6 and loW <= rng * 0.15
+plainDoji    = dojiShape and not dragonShape and not graveShape
+spinTopShape = rng > 0 and not dojiShape and bodyPct <= 0.30 and upW >= body and loW >= body
+becShape     = bearC[1] and bullC and open <= close[1] and close >= open[1] and body > body[1] and body[1] > 0
+
+// Neutral-pattern trend context text
+ctxTxt = "Trend: " + (upTrend[1] ? "Uptrend" : downTrend[1] ? "Downtrend" : "Sideways") + " (context)"
+
+if barstate.isconfirmed
+    // 01 HAMMER — bullish reversal after downtrend
+    if hammerShape and downTrend[1]
+        fire(p01, 1, "M", "BR", 1, "60,240,D", "HAM", "Hammer", "Trend: Downtrend ✓", "Small body at the top with a lower shadow ≥ 2× body after a downtrend — sellers pushed deep but buyers slammed price back.", "SL: a few ticks below the hammer low  |  TP: nearest resistance, then prior swing high (min 1:2 RR)", "★ Good (72%)", "H1 · H4 · D1", high, low)
+    // 02 HANGING MAN — bearish reversal after uptrend
+    if hammerShape and upTrend[1]
+        fire(p02, 1, "M", "SR", -1, "60,240,D", "HGM", "Hanging Man", "Trend: Uptrend ✓", "Hammer anatomy appearing after an uptrend — the long lower shadow shows sellers testing depth while buyers barely hold.", "SL: above the hanging-man high  |  TP: nearest support, then prior swing low", "★ Fair (65%)", "H1 · H4 · D1", high, low)
+    // 03 INVERTED HAMMER — bullish reversal after downtrend
+    if invHamShape and downTrend[1]
+        fire(p03, 1, "M", "BR", 1, "60,240,D", "IH", "Inverted Hammer", "Trend: Downtrend ✓", "Small body at the bottom with an upper shadow ≥ 2× body after a downtrend — buyers probed higher; needs confirmation.", "SL: below the inverted-hammer low  |  TP: nearest resistance, then prior swing high", "★ Fair (65%)", "H1 · H4 · D1", high, low)
+    // 04 SHOOTING STAR — bearish reversal after uptrend
+    if invHamShape and upTrend[1]
+        fire(p04, 1, "M", "SR", -1, "60,240,D", "SST", "Shooting Star", "Trend: Uptrend ✓", "Small body at the bottom with a long upper shadow after an uptrend — buyers' final push rejected hard.", "SL: above the shooting-star high  |  TP: nearest support, then prior swing low", "★ Good (69%)", "H1 · H4 · D1", high, low)
+    // 05 BULLISH MARUBOZU — momentum / continuation
+    if maruBullShp
+        fire(p05, 1, "I", "CT", 1, "15,60,240,D", "BUM", "Bullish Marubozu", ctxTxt, "Full-body bullish candle with little to no shadows — buyers in total control from open to close.", "SL: below the marubozu low  |  TP: measured move / next resistance", "★ Good (70%)", "M15 · H1 · H4 · D1", high, low)
+    // 06 BEARISH MARUBOZU — momentum / continuation
+    if maruBearShp
+        fire(p06, 1, "I", "CT", -1, "15,60,240,D", "BEM", "Bearish Marubozu", ctxTxt, "Full-body bearish candle with little to no shadows — sellers in total control from open to close.", "SL: above the marubozu high  |  TP: measured move / next support", "★ Good (70%)", "M15 · H1 · H4 · D1", high, low)
+    // 07 DOJI — indecision (informational)
+    if plainDoji and minRange
+        fire(p07, 1, "I", "IN", 0, "60,240,D", "DOJ", "Doji", ctxTxt, "Open and close nearly equal — total indecision. Meaning depends entirely on trend context and the next candle.", "SL: n/a (informational)  |  TP: n/a — wait for the resolving candle", "★ Context-dependent", "H1 · H4 · D1", high, low)
+    // 08 DRAGONFLY DOJI — bullish reversal after downtrend
+    if dragonShape and downTrend[1]
+        fire(p08, 1, "I", "BR", 1, "240,D", "DFD", "Dragonfly Doji", "Trend: Downtrend ✓", "Doji with a long lower shadow and open/close at the top — sellers dumped price but buyers reclaimed everything.", "SL: below the dragonfly low  |  TP: nearest resistance", "★ Good (68%)", "H4 · D1", high, low)
+    // 09 GRAVESTONE DOJI — bearish reversal after uptrend
+    if graveShape and upTrend[1]
+        fire(p09, 1, "I", "SR", -1, "240,D", "GSD", "Gravestone Doji", "Trend: Uptrend ✓", "Doji with a long upper shadow and open/close at the bottom — buyers pushed high but sellers erased it all.", "SL: above the gravestone high  |  TP: nearest support", "★ Good (67%)", "H4 · D1", high, low)
+    // 10 SPINNING TOP — indecision (informational)
+    if spinTopShape and minRange
+        fire(p10, 1, "R", "IN", 0, "60,240,D", "SPT", "Spinning Top", ctxTxt, "Small body centered between two visible shadows — a balanced fight; momentum is stalling.", "SL: n/a (informational)  |  TP: n/a — wait for the resolving candle", "★ Context-dependent", "H1 · H4 · D1", high, low)
+    // 13 BULLISH ENGULFING (preview from batch 2) — bullish reversal
+    if becShape and downTrend[2]
+        fire(p13, 2, "M", "BR", 1, "60,240,D", "BEC", "Bullish Engulfing", "Trend: Downtrend ✓", "After a downtrend, a small bearish candle's body is fully engulfed by a large bullish candle — total, instant transfer of control to buyers.", "SL: below the engulfing candle low  |  TP: nearest resistance then swing high; often starts long moves — consider trailing", "★ High (78%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+
+// ═══════════════ STATE UPDATES: CONFIRM / FAIL / EXPIRE ════════════════════
+if barstate.isconfirmed and insts.size() > 0
+    for i = 0 to insts.size() - 1
+        inst = insts.get(i)
+        if inst.state == 0 and bar_index > inst.barIdx
+            newState = 0
+            if inst.dir == 1
+                newState := close > inst.patHigh ? 1 : close < inst.patLow ? 2 : 0
+            else if inst.dir == -1
+                newState := close < inst.patLow ? 1 : close > inst.patHigh ? 2 : 0
+            if newState == 0 and bar_index - inst.barIdx >= confWindow
+                newState := 4
+            if newState != 0
+                inst.state := newState
+                if na(inst.lb) and newState == 1
+                    inst.draw()
+                if not na(inst.lb)
+                    label.set_tooltip(inst.lb, inst.tipText())
+                    if newState == 2 or newState == 4
+                        label.set_color(inst.lb, color.new(inst.colMain, 75))
