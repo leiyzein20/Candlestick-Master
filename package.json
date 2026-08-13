@@ -1,0 +1,13 @@
+{
+  "name": "candlestick-master",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A structured library of candlestick pattern specifications, organized by direction and category.",
+  "scripts": {
+    "lint": "markdownlint-cli2",
+    "lint:fix": "markdownlint-cli2 --fix"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.2"
+  }
+}
