@@ -1,0 +1,85 @@
+{
+  "suite": "wick_body",
+  "spec": "engines/WICK_BODY_ENGINE.md",
+  "note": "All candles use range 100 (low 0, high 100) so that a price distance equals a percentage of range. Thresholds are the CV- defaults; boundaries are inclusive.",
+  "cases": [
+    {
+      "id": "WB-001",
+      "desc": "boundary: body exactly 10% of range - doji class is inclusive",
+      "candle": {"o": 45.0, "h": 100.0, "l": 0.0, "c": 55.0},
+      "expect": {"is_doji_body": true, "is_small_body": true, "is_large_body": false, "is_marubozu": false}
+    },
+    {
+      "id": "WB-002",
+      "desc": "boundary: body 10.1% of range - just outside the doji class",
+      "candle": {"o": 44.95, "h": 100.0, "l": 0.0, "c": 55.05},
+      "expect": {"is_doji_body": false, "is_small_body": true, "is_large_body": false}
+    },
+    {
+      "id": "WB-003",
+      "desc": "boundary: body exactly 30% - small body class is inclusive",
+      "candle": {"o": 35.0, "h": 100.0, "l": 0.0, "c": 65.0},
+      "expect": {"is_doji_body": false, "is_small_body": true, "is_large_body": false}
+    },
+    {
+      "id": "WB-004",
+      "desc": "boundary: body exactly 60% - large body class is inclusive",
+      "candle": {"o": 20.0, "h": 100.0, "l": 0.0, "c": 80.0},
+      "expect": {"is_small_body": false, "is_large_body": true, "is_marubozu": false}
+    },
+    {
+      "id": "WB-005",
+      "desc": "boundary: body exactly 90% - marubozu, and wicks are short",
+      "candle": {"o": 5.0, "h": 100.0, "l": 0.0, "c": 95.0},
+      "expect": {
+        "is_large_body": true, "is_marubozu": true,
+        "is_short_upper_wick": true, "is_short_lower_wick": true
+      }
+    },
+    {
+      "id": "WB-006",
+      "desc": "both long-wick idioms AGREE: body 30%, lower wick 65%, upper wick 5%",
+      "candle": {"o": 65.0, "h": 100.0, "l": 0.0, "c": 95.0},
+      "expect": {
+        "is_long_lower_wick_r": true, "is_long_lower_wick_b": true,
+        "is_long_upper_wick_r": false, "is_long_upper_wick_b": false,
+        "is_small_body": true
+      }
+    },
+    {
+      "id": "WB-007",
+      "desc": "the two long-wick idioms DISAGREE: body 5%, lower wick 45%, upper wick 50%. Body-multiple says long, range-fraction says not. Visually a spinning top.",
+      "candle": {"o": 45.0, "h": 100.0, "l": 0.0, "c": 50.0},
+      "expect": {
+        "is_long_lower_wick_r": false, "is_long_lower_wick_b": true,
+        "is_long_upper_wick_r": false, "is_long_upper_wick_b": true,
+        "is_doji_body": true
+      }
+    },
+    {
+      "id": "WB-008",
+      "desc": "the body-multiple trap: with body == 0 every non-zero wick trivially satisfies wick >= 2 * body",
+      "candle": {"o": 50.0, "h": 60.0, "l": 40.0, "c": 50.0},
+      "expect": {
+        "is_doji_body": true,
+        "is_long_upper_wick_b": true, "is_long_lower_wick_b": true,
+        "is_long_upper_wick_r": false, "is_long_lower_wick_r": false
+      }
+    },
+    {
+      "id": "WB-009",
+      "desc": "boundary: wick exactly 60% of range satisfies the range-fraction idiom",
+      "candle": {"o": 60.0, "h": 100.0, "l": 0.0, "c": 80.0},
+      "expect": {"is_long_lower_wick_r": true, "is_long_upper_wick_r": false}
+    },
+    {
+      "id": "WB-010",
+      "desc": "boundary: wick exactly 10% of range is still a short wick",
+      "candle": {"o": 10.0, "h": 100.0, "l": 0.0, "c": 90.0},
+      "expect": {
+        "is_short_lower_wick": true, "is_short_upper_wick": true,
+        "is_marubozu": false, "is_large_body": true
+      }
+    }
+  ]
+}

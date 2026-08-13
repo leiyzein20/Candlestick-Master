@@ -1,0 +1,98 @@
+{
+  "suite": "confirmation",
+  "spec": "engines/CONFIRMATION_ENGINE.md",
+  "note": "`closes` are the closes of the fully closed candles AFTER the pattern's last candle, in order. The forming bar is never passed in. Levels are captured at detection and never recomputed.",
+  "cases": [
+    {
+      "id": "CONF-001",
+      "desc": "bullish, confirmed on the first candle",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [111.0],
+      "expect": {"status": "CONFIRMED", "resolved_after": 1}
+    },
+    {
+      "id": "CONF-002",
+      "desc": "bullish, confirmed on the last candle of the window",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [105.0, 106.0, 111.0],
+      "expect": {"status": "CONFIRMED", "resolved_after": 3}
+    },
+    {
+      "id": "CONF-003",
+      "desc": "the trigger is reached one candle too late: already EXPIRED, and the late close does not confirm it",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [105.0, 106.0, 107.0, 111.0],
+      "expect": {"status": "EXPIRED", "resolved_after": null}
+    },
+    {
+      "id": "CONF-004",
+      "desc": "bullish, invalidated immediately",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [99.0],
+      "expect": {"status": "FAILED", "resolved_after": 1}
+    },
+    {
+      "id": "CONF-005",
+      "desc": "bullish, drifts then fails on candle 2",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [105.0, 98.0, 111.0],
+      "expect": {"status": "FAILED", "resolved_after": 2}
+    },
+    {
+      "id": "CONF-006",
+      "desc": "nothing happens for the whole window: EXPIRED, which is NOT a failure and fires no failure alert",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [105.0, 106.0, 107.0],
+      "expect": {"status": "EXPIRED", "resolved_after": null}
+    },
+    {
+      "id": "CONF-007",
+      "desc": "a close exactly ON the trigger does not confirm: the rule is a close ABOVE the level",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [110.0, 110.0, 110.0],
+      "expect": {"status": "EXPIRED", "resolved_after": null}
+    },
+    {
+      "id": "CONF-008",
+      "desc": "bearish, confirmed by a close below the pattern low",
+      "pending": {"direction": -1, "trigger": 100.0, "invalidation": 110.0, "bars": 3},
+      "closes": [99.0],
+      "expect": {"status": "CONFIRMED", "resolved_after": 1}
+    },
+    {
+      "id": "CONF-009",
+      "desc": "bearish, invalidated by a close above the pattern high",
+      "pending": {"direction": -1, "trigger": 100.0, "invalidation": 110.0, "bars": 3},
+      "closes": [111.0],
+      "expect": {"status": "FAILED", "resolved_after": 1}
+    },
+    {
+      "id": "CONF-010",
+      "desc": "neutral pattern resolving upward: the breaking side becomes the resolved direction",
+      "pending": {"direction": 0, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [105.0, 111.0],
+      "expect": {"status": "CONFIRMED", "resolved_after": 2, "resolved_direction": 1}
+    },
+    {
+      "id": "CONF-011",
+      "desc": "neutral pattern resolving downward",
+      "pending": {"direction": 0, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [99.0],
+      "expect": {"status": "CONFIRMED", "resolved_after": 1, "resolved_direction": -1}
+    },
+    {
+      "id": "CONF-012",
+      "desc": "a one-candle window still works",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 1},
+      "closes": [105.0, 111.0],
+      "expect": {"status": "EXPIRED", "resolved_after": null}
+    },
+    {
+      "id": "CONF-013",
+      "desc": "no candles have closed yet: the pattern stays DETECTED and nothing is claimed",
+      "pending": {"direction": 1, "trigger": 110.0, "invalidation": 100.0, "bars": 3},
+      "closes": [],
+      "expect": {"status": "DETECTED", "resolved_after": null}
+    }
+  ]
+}

@@ -50,12 +50,13 @@ Engulfing because RSI is neutral — it just scores lower. See
 | [`PATTERN_REGISTRY.md`](PATTERN_REGISTRY.md) | The one authoritative index of every pattern: ID, abbreviation, category, timeframes, implementation status. |
 | [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) | Phased build order, per-batch gate checklist, definition of done. |
 | [`CONFLICT_LOG.md`](CONFLICT_LOG.md) | Every contradiction / ambiguity / missing rule found in supplied specs. Nothing is resolved silently. |
+| [`IMPLEMENTATION_GATE.md`](IMPLEMENTATION_GATE.md) | The rule that keeps Pine Script out of the repo until the owner opens the gate. |
 | `patterns/<category>/` | One file per pattern, verbatim spec + derived machine rules. |
-| [`patterns/SPEC_TEMPLATE.md`](patterns/SPEC_TEMPLATE.md) | The mandatory 22-field pattern specification form. |
-| [`patterns/INTAKE.md`](patterns/INTAKE.md) | The process applied to each supplied specification. |
-| `engines/*.md` | One specification per engine (formulas, Pine mapping, edge cases, open questions). |
-| `tests/*.md` | Test plans plus machine-readable vectors in `tests/vectors/`. |
 | [`patterns/CLASSIFICATION.md`](patterns/CLASSIFICATION.md) | Deterministic direction × category → directory routing. Removes the need to ask where a pattern goes. |
+| [`patterns/SPEC_TEMPLATE.md`](patterns/SPEC_TEMPLATE.md) | The mandatory 20-section pattern specification form. |
+| [`patterns/INTAKE.md`](patterns/INTAKE.md) | The twelve-step process applied to each supplied specification. |
+| [`engines/`](engines/) | Twelve engine specifications: contract, formulas, edge cases, cost, tests, open questions. |
+| [`tests/`](tests/) | Test plans, executable vectors in `tests/vectors/`, and the manual Pine compile checklist. |
 | `pine/` | Reserved for the deliverable `CandlestickMaster.pine`. **Empty until the gate opens.** |
 | `tools/` | Repo-side helpers: spec/registry linter, engine reference model, vector runner. |
 | [`docs/DEFINITION_CONVERSIONS.md`](docs/DEFINITION_CONVERSIONS.md) | Every vague phrase ("clear downtrend", "major support") → explicit measurable rule, with an ID. |
@@ -84,14 +85,28 @@ No questions asked about filing; the routing is mechanical
 ## Local tooling
 
 ```bash
-python3 tools/spec_lint.py      # pattern files vs template vs PATTERN_REGISTRY.md consistency
-python3 tools/run_tests.py      # engine test vectors in tests/vectors/ vs the reference model
+python3 tools/run_tests.py      # 2435 checks: engine mathematics vs tests/vectors/
+python3 tools/spec_lint.py      # pattern files vs template vs registry vs conflict log
 ```
 
-`tools/reference_model.py` is a Python mirror of the **engine mathematics only** (candle
-measurements and candle-to-candle relationships). It exists so the numbers in
-`MASTER_SPECIFICATION.md` are executable and regression-checked before any Pine is
-written. It contains no pattern definitions.
+Both pass on the current tree, with no third-party dependencies (Python 3.9+ only).
+
+`tools/reference_model.py` is a Python mirror of the **engine mathematics only** — candle
+measurements, candle-to-candle relationships, timeframe matching, RSI/EMA/volume state, the
+confirmation state machine, and confluence scoring. It exists so the numbers in
+`MASTER_SPECIFICATION.md` are executable and regression-checked before any Pine is written.
+It contains **no pattern definitions**.
+
+Three behavioural properties are asserted rather than promised:
+
+* a pivot is never used before its confirmation bar — the divergence suite checks every bar
+  between the pivot and `pivotBar + 5` for inactivity, then activity at the confirmation bar;
+* an 80-bar uptrend that stays above its 20 EMA reports **zero** reclaims;
+* a monotonically rising series produces **no** divergence, only momentum.
+
+Writing these tests found three real defects in the specification's own logic: a timeframe
+class boundary that swallowed 1m charts, a resolver that let later price action revive a
+`FAILED` pattern, and a divergence fixture that violated the maximum pivot separation.
 
 A Pine static checker (`tools/pine_lint.py`) is specified in
 [`tests/PINE_COMPILE_CHECKLIST.md`](tests/PINE_COMPILE_CHECKLIST.md) and lands with the

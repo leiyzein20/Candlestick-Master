@@ -340,9 +340,11 @@ Three enforcement modes `[OWNER]` + `[ENGINE-DEFAULT]` classes:
 | `CLASS` *(default)* | allowed if the chart timeframe falls in the same **class** as any listed timeframe — so a 3H chart accepts an H1/H4-listed pattern, a 45m chart accepts a 15m/30m-listed one |
 | `EXACT` | allowed only on the exact listed minute values |
 
-Classes `[ENGINE-DEFAULT]` `CV-TF-001`: `SUB_MINUTE (<1)`, `MIN_FAST (1–3)`,
-`MIN_MID (5–10)`, `MIN_SLOW (15–45)`, `HOUR_LOW (60–180)`, `HOUR_HIGH (240–720)`,
-`DAILY (1440)`, `WEEKLY (10080)`, `MONTHLY (≥43200)`.
+Classes `[ENGINE-DEFAULT]` `CV-TF-001`, defined by **total, non-overlapping** minute spans so
+that every possible chart timeframe lands in exactly one: `SUB_MINUTE (<1)`,
+`MIN_FAST (1–4)`, `MIN_MID (5–14)`, `MIN_SLOW (15–59)`, `HOUR_LOW (60–239)`,
+`HOUR_HIGH (240–1439)`, `DAILY (1440–10079)`, `WEEKLY (10080–43199)`,
+`MONTHLY (≥43200)`.
 
 `TEST MODE` `[OWNER]` overrides all of the above and additionally relaxes context gating,
 so a pattern can be verified in isolation. It is visibly announced in the info panel and

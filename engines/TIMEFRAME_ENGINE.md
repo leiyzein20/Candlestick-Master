@@ -62,22 +62,25 @@ Anything `>= 43200` is monthly-or-higher.
 pattern listed for H1 and H4?" without either hiding everything or ignoring the owner's
 lists.
 
-| Class | Minute span | Contains |
-| --- | --- | --- |
-| `SUB_MINUTE` | `< 1` | seconds and tick charts |
-| `MIN_FAST` | `1 – 3` | 1m, 2m, 3m |
-| `MIN_MID` | `5 – 10` | 5m, 10m |
-| `MIN_SLOW` | `15 – 45` | 15m, 30m, 45m |
-| `HOUR_LOW` | `60 – 180` | 1H, 2H, 3H |
-| `HOUR_HIGH` | `240 – 720` | 4H, 6H, 8H, 12H |
-| `DAILY` | `1440 – 4319` | 1D, 2D, 3D |
-| `WEEKLY` | `4320 – 43199` | 1W, 2W |
-| `MONTHLY` | `>= 43200` | 1M and above |
+Spans are **total and non-overlapping** over all positive minute values, so every possible
+chart timeframe — including ones nobody enumerated — lands in exactly one class.
 
-Every possible `chartMinutes` value falls in exactly one class, so no timeframe is
-unclassifiable. The class boundaries are a judgement and are recorded as such — 3H sits with
-1H because a 3H candle behaves closer to an hourly than to a 4H structural candle, and 45m
-sits with 15m/30m for the same reason.
+| Class | Minute span | Canonical tokens inside | Also catches |
+| --- | --- | --- | --- |
+| `SUB_MINUTE` | `< 1` | — | seconds and tick charts |
+| `MIN_FAST` | `1 – 4` | 1m, 2m, 3m | 4m |
+| `MIN_MID` | `5 – 14` | 5m, 10m | 6m, 7m, 12m |
+| `MIN_SLOW` | `15 – 59` | 15m, 30m, 45m | 20m, 25m, 50m |
+| `HOUR_LOW` | `60 – 239` | 1H, 2H, 3H | 90m, 150m |
+| `HOUR_HIGH` | `240 – 1439` | 4H, 6H, 8H, 12H | 5H, 10H, 18H |
+| `DAILY` | `1440 – 10079` | 1D | 2D, 3D, 5D |
+| `WEEKLY` | `10080 – 43199` | 1W | 2W, 3W |
+| `MONTHLY` | `>= 43200` | 1M | 2M, 3M, 12M |
+
+The boundaries are a judgement and are recorded as such: 3H sits with 1H because a 3H candle
+behaves closer to an hourly than to a 4H structural candle, and 45m sits with 15m/30m for the
+same reason. `DAILY` extends to just under a week so that 2D–6D charts are treated as daily
+rather than weekly.
 
 ## 5. Enforcement modes
 
@@ -99,7 +102,7 @@ Worked example — pattern listed `H1, H4, D1` (`"60,240,1440"`):
 | 4H | shown | shown | exact match |
 | 6H, 12H | hidden | shown | same class as the listed 4H |
 | 1D | shown | shown | exact match |
-| 2D, 3D | hidden | shown | same class as the listed 1D |
+| 2D, 3D | hidden | shown | `DAILY`, same class as the listed 1D |
 | 1W, 1M | hidden | hidden | no listed timeframe is weekly or monthly |
 
 This satisfies the requirement exactly: all three listed timeframes work, the fast
@@ -156,7 +159,8 @@ The banner is not optional. A screenshot taken in test mode must be self-evident
 
 * the full §5 example table, asserted cell by cell;
 * every canonical token maps to exactly one class;
-* class boundaries at 3/5, 10/15, 45/60, 180/240, 720/1440, 4319/4320, 43199/43200;
+* class boundaries on both sides of 4/5, 14/15, 59/60, 239/240, 1439/1440, 10079/10080,
+  43199/43200;
 * non-canonical timeframes (7m, 9H, 2D, 2W) get a class and never error;
 * sub-minute charts hide everything and do not error;
 * `OFF` shows every pattern on every timeframe;

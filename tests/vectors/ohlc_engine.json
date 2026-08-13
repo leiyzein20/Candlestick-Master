@@ -1,0 +1,108 @@
+{
+  "suite": "ohlc_engine",
+  "spec": "engines/OHLC_ENGINE.md",
+  "note": "Expected values are hand-computed from the primitive formulas in MASTER_SPECIFICATION.md 3.1-3.2. Comparison tolerance 1e-9.",
+  "cases": [
+    {
+      "id": "OHLC-001",
+      "desc": "standard bullish candle with wicks on both sides",
+      "candle": {"o": 100.0, "h": 110.0, "l": 95.0, "c": 108.0},
+      "expect": {
+        "range": 15.0, "body": 8.0, "upper_wick": 2.0, "lower_wick": 5.0,
+        "body_top": 108.0, "body_bottom": 100.0,
+        "body_pct": 0.5333333333333333, "upper_wick_pct": 0.13333333333333333,
+        "lower_wick_pct": 0.3333333333333333,
+        "close_pos": 0.8666666666666667, "open_pos": 0.3333333333333333,
+        "candle_mid": 102.5, "body_mid": 104.0,
+        "is_bull": true, "is_bear": false, "is_flat": false, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-002",
+      "desc": "mirror bearish candle: identical geometry, opposite colour and close position",
+      "candle": {"o": 108.0, "h": 110.0, "l": 95.0, "c": 100.0},
+      "expect": {
+        "range": 15.0, "body": 8.0, "upper_wick": 2.0, "lower_wick": 5.0,
+        "body_top": 108.0, "body_bottom": 100.0,
+        "body_pct": 0.5333333333333333, "close_pos": 0.3333333333333333,
+        "candle_mid": 102.5, "body_mid": 104.0,
+        "is_bull": false, "is_bear": true, "is_flat": false, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-003",
+      "desc": "perfect doji: zero body, equal wicks, flat colour",
+      "candle": {"o": 100.0, "h": 102.0, "l": 98.0, "c": 100.0},
+      "expect": {
+        "range": 4.0, "body": 0.0, "upper_wick": 2.0, "lower_wick": 2.0,
+        "body_pct": 0.0, "upper_wick_pct": 0.5, "lower_wick_pct": 0.5,
+        "close_pos": 0.5, "candle_mid": 100.0, "body_mid": 100.0,
+        "is_bull": false, "is_bear": false, "is_flat": true, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-004",
+      "desc": "degenerate candle (all four prices equal): constants, not na, and not measurable",
+      "candle": {"o": 50.0, "h": 50.0, "l": 50.0, "c": 50.0},
+      "expect": {
+        "range": 0.0, "body": 0.0, "upper_wick": 0.0, "lower_wick": 0.0,
+        "body_pct": 0.0, "upper_wick_pct": 0.0, "lower_wick_pct": 0.0,
+        "close_pos": 0.5, "open_pos": 0.5,
+        "candle_mid": 50.0, "body_mid": 50.0,
+        "is_bull": false, "is_bear": false, "is_flat": true, "is_measurable": false
+      }
+    },
+    {
+      "id": "OHLC-005",
+      "desc": "bullish marubozu: no wicks at all",
+      "candle": {"o": 100.0, "h": 110.0, "l": 100.0, "c": 110.0},
+      "expect": {
+        "range": 10.0, "body": 10.0, "upper_wick": 0.0, "lower_wick": 0.0,
+        "body_pct": 1.0, "upper_wick_pct": 0.0, "lower_wick_pct": 0.0,
+        "close_pos": 1.0, "open_pos": 0.0, "is_bull": true, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-006",
+      "desc": "tiny body high in the range with a long lower wick (geometry only, no pattern claim)",
+      "candle": {"o": 105.0, "h": 106.0, "l": 95.0, "c": 105.5},
+      "expect": {
+        "range": 11.0, "body": 0.5, "upper_wick": 0.5, "lower_wick": 10.0,
+        "body_pct": 0.045454545454545456,
+        "upper_wick_pct": 0.045454545454545456,
+        "lower_wick_pct": 0.9090909090909091,
+        "close_pos": 0.9545454545454546,
+        "is_bull": true, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-007",
+      "desc": "one-tick range: measurable, but every ratio is extreme",
+      "candle": {"o": 100.0, "h": 100.01, "l": 100.0, "c": 100.01},
+      "expect": {
+        "body_pct": 1.0, "upper_wick_pct": 0.0, "lower_wick_pct": 0.0,
+        "close_pos": 1.0, "is_bull": true, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-008",
+      "desc": "close exactly at the low: close_pos == 0",
+      "candle": {"o": 100.0, "h": 105.0, "l": 98.0, "c": 98.0},
+      "expect": {
+        "range": 7.0, "body": 2.0, "upper_wick": 5.0, "lower_wick": 0.0,
+        "body_pct": 0.2857142857142857, "upper_wick_pct": 0.7142857142857143,
+        "lower_wick_pct": 0.0, "close_pos": 0.0,
+        "is_bear": true, "is_measurable": true
+      }
+    },
+    {
+      "id": "OHLC-009",
+      "desc": "candle midpoint and body midpoint differ substantially - they are never interchangeable",
+      "candle": {"o": 100.0, "h": 105.0, "l": 80.0, "c": 104.0},
+      "expect": {
+        "candle_mid": 92.5, "body_mid": 102.0,
+        "range": 25.0, "body": 4.0, "upper_wick": 1.0, "lower_wick": 20.0
+      }
+    }
+  ]
+}

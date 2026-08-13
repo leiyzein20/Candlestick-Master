@@ -1,0 +1,101 @@
+{
+  "suite": "relationship",
+  "spec": "engines/RELATIONSHIP_ENGINE.md",
+  "note": "`a` is the newer candle, `b` the older. Every expectation is hand-computed from MASTER_SPECIFICATION.md section 4.",
+  "cases": [
+    {
+      "id": "REL-001",
+      "desc": "shared boundaries (new open == old close, new close == old open): inclusive engulfment passes, strict fails. Very common on 24-hour instruments, which is why the default is inclusive.",
+      "a": {"o": 100.0, "h": 111.0, "l": 99.0, "c": 110.0},
+      "b": {"o": 110.0, "h": 112.0, "l": 98.0, "c": 100.0},
+      "expect": {
+        "body_engulfs": true, "body_engulfs_strict": false,
+        "range_engulfs": false, "range_engulfs_strict": false,
+        "body_inside": true,
+        "close_above_prev_body_mid": true, "close_above_prev_range_mid": true,
+        "penetration_up": 1.0, "penetration_down": null,
+        "true_gap_up": false, "body_gap_up": false,
+        "open_above_prev_close": false, "open_below_prev_close": false,
+        "close_above_prev_close": true, "close_above_prev_high": false,
+        "higher_high": false, "lower_low": false
+      }
+    },
+    {
+      "id": "REL-002",
+      "desc": "body midpoint 102 vs range midpoint 92.5 on a long-lower-wick candle: the same close is below one and above the other. Proof they are not interchangeable.",
+      "a": {"o": 90.0, "h": 96.0, "l": 88.0, "c": 95.0},
+      "b": {"o": 100.0, "h": 105.0, "l": 80.0, "c": 104.0},
+      "expect": {
+        "close_above_prev_body_mid": false, "close_below_prev_body_mid": true,
+        "close_above_prev_range_mid": true, "close_below_prev_range_mid": false,
+        "penetration_up": null, "penetration_down": 2.25
+      }
+    },
+    {
+      "id": "REL-003",
+      "desc": "penetration exactly 0.5 means the close sits ON the previous body midpoint, so a strict `close > midpoint` rule is FALSE. The inclusivity choice decides this case.",
+      "a": {"o": 101.0, "h": 106.0, "l": 100.0, "c": 105.0},
+      "b": {"o": 110.0, "h": 112.0, "l": 98.0, "c": 100.0},
+      "expect": {
+        "penetration_up": 0.5,
+        "close_above_prev_body_mid": false,
+        "close_below_prev_body_mid": false,
+        "body_engulfs": false
+      }
+    },
+    {
+      "id": "REL-004",
+      "desc": "previous candle is a perfect doji: penetration is undefined (null), not zero",
+      "a": {"o": 99.0, "h": 103.0, "l": 98.0, "c": 102.0},
+      "b": {"o": 100.0, "h": 102.0, "l": 98.0, "c": 100.0},
+      "expect": {"penetration_up": null, "penetration_down": null}
+    },
+    {
+      "id": "REL-005",
+      "desc": "bodies gap but ranges overlap: body_gap_up true, true_gap_up false",
+      "a": {"o": 112.0, "h": 120.0, "l": 106.0, "c": 118.0},
+      "b": {"o": 100.0, "h": 110.0, "l": 99.0, "c": 105.0},
+      "expect": {
+        "body_gap_up": true, "true_gap_up": false,
+        "gap_up_size": 0.0,
+        "open_above_prev_close": true
+      }
+    },
+    {
+      "id": "REL-006",
+      "desc": "true range gap up of 2.0 with ATR 4.0 => 0.5 ATR",
+      "a": {"o": 112.0, "h": 118.0, "l": 112.0, "c": 117.0},
+      "b": {"o": 100.0, "h": 110.0, "l": 99.0, "c": 105.0},
+      "atr": 4.0,
+      "expect": {
+        "true_gap_up": true, "body_gap_up": true,
+        "gap_up_size": 2.0, "gap_up_size_atr": 0.5,
+        "close_above_prev_high": true
+      }
+    },
+    {
+      "id": "REL-007",
+      "desc": "containment: body inside and range inside the previous candle",
+      "a": {"o": 104.0, "h": 107.0, "l": 103.0, "c": 106.0},
+      "b": {"o": 110.0, "h": 112.0, "l": 98.0, "c": 100.0},
+      "expect": {
+        "body_inside": true, "range_inside": true,
+        "body_engulfs": false, "range_engulfs": false,
+        "close_above_prev_body_mid": true,
+        "penetration_up": 0.6
+      }
+    },
+    {
+      "id": "REL-008",
+      "desc": "true range gap down of 2.0, close below the previous low",
+      "a": {"o": 95.0, "h": 96.0, "l": 90.0, "c": 91.0},
+      "b": {"o": 100.0, "h": 105.0, "l": 98.0, "c": 104.0},
+      "expect": {
+        "true_gap_down": true, "body_gap_down": true,
+        "gap_down_size": 2.0,
+        "close_below_prev_low": true, "close_below_prev_close": true,
+        "penetration_down": 3.25
+      }
+    }
+  ]
+}

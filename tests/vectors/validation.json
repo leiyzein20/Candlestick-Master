@@ -1,0 +1,85 @@
+{
+  "suite": "validation",
+  "spec": "engines/VALIDATION_ENGINE.md",
+  "note": "Factor values: pass | fail | oppose | excluded. 'fail' is measurable but unsupportive; 'oppose' actively points the other way and triggers a cap; 'excluded' lowers max_score. Bands are on score/max_score.",
+  "cases": [
+    {
+      "id": "VAL-001",
+      "desc": "owner example 1: everything present and confirmed",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "pass", "ema": "pass", "volume": "pass", "confirmation": "pass"},
+      "expect": {"score": 6, "max_score": 6, "band": "VERY STRONG", "cap": null}
+    },
+    {
+      "id": "VAL-002",
+      "desc": "same, but not yet confirmed: 5/6 = 0.8333 sits exactly on the STRONG upper edge",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "pass", "ema": "pass", "volume": "pass", "confirmation": "fail"},
+      "expect": {"score": 5, "max_score": 6, "band": "STRONG", "cap": null}
+    },
+    {
+      "id": "VAL-003",
+      "desc": "owner example 2: RSI neutral, everything else present, unconfirmed => 4/6",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "fail", "ema": "pass", "volume": "pass", "confirmation": "fail"},
+      "expect": {"score": 4, "max_score": 6, "band": "STRONG", "cap": null}
+    },
+    {
+      "id": "VAL-004",
+      "desc": "low confluence: 2/6 = 0.3333 is the WEAK upper edge, inclusive",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "fail", "ema": "fail", "volume": "fail", "confirmation": "fail"},
+      "expect": {"score": 2, "max_score": 6, "band": "WEAK", "cap": null}
+    },
+    {
+      "id": "VAL-005",
+      "desc": "identical price action on an instrument with no volume data: max_score 5, so 2/5 = 0.40 reads MODERATE. This is why bands are ratios - absolute bands would rate volume-less instruments permanently weaker.",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "fail", "ema": "fail", "volume": "excluded", "confirmation": "fail"},
+      "expect": {"score": 2, "max_score": 5, "band": "MODERATE", "cap": null}
+    },
+    {
+      "id": "VAL-006",
+      "desc": "3/6 = 0.50 is the MODERATE upper edge, inclusive",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "pass", "ema": "fail", "volume": "fail", "confirmation": "fail"},
+      "expect": {"score": 3, "max_score": 6, "band": "MODERATE", "cap": null}
+    },
+    {
+      "id": "VAL-007",
+      "desc": "contradiction cap: two opposing factors drop a nominal STRONG to WEAK",
+      "factors": {"trend": "oppose", "location": "oppose", "rsi": "pass", "ema": "pass", "volume": "pass", "confirmation": "pass"},
+      "expect": {"score": 4, "max_score": 6, "band": "WEAK", "opposing": 2, "cap": "2 opposing"}
+    },
+    {
+      "id": "VAL-008",
+      "desc": "contradiction cap: one opposing factor caps at MODERATE",
+      "factors": {"trend": "oppose", "location": "pass", "rsi": "pass", "ema": "pass", "volume": "pass", "confirmation": "pass"},
+      "expect": {"score": 5, "max_score": 6, "band": "MODERATE", "opposing": 1, "cap": "1 opposing"}
+    },
+    {
+      "id": "VAL-009",
+      "desc": "one opposing factor but the band was already WEAK: the cap does not raise anything",
+      "factors": {"trend": "oppose", "location": "fail", "rsi": "fail", "ema": "fail", "volume": "fail", "confirmation": "fail"},
+      "expect": {"score": 0, "max_score": 6, "band": "WEAK", "opposing": 1, "cap": null}
+    },
+    {
+      "id": "VAL-010",
+      "desc": "neutral pattern before its direction resolves: the four directional factors are excluded, max_score 2",
+      "factors": {"trend": "excluded", "location": "excluded", "rsi": "excluded", "ema": "excluded", "volume": "pass", "confirmation": "fail"},
+      "expect": {"score": 1, "max_score": 2, "band": "MODERATE", "cap": null}
+    },
+    {
+      "id": "VAL-011",
+      "desc": "neutral pattern, volume present and confirmed: 2/2 reaches the top band because confirmation passed",
+      "factors": {"trend": "excluded", "location": "excluded", "rsi": "excluded", "ema": "excluded", "volume": "pass", "confirmation": "pass"},
+      "expect": {"score": 2, "max_score": 2, "band": "VERY STRONG", "cap": null}
+    },
+    {
+      "id": "VAL-012",
+      "desc": "max_score 4 (volume and RSI unmeasurable): 3/4 = 0.75 is STRONG",
+      "factors": {"trend": "pass", "location": "pass", "rsi": "excluded", "ema": "fail", "volume": "excluded", "confirmation": "pass"},
+      "expect": {"score": 3, "max_score": 4, "band": "STRONG", "cap": null}
+    },
+    {
+      "id": "VAL-013",
+      "desc": "everything unmeasurable: max_score 0 must not divide by zero",
+      "factors": {"trend": "excluded", "location": "excluded", "rsi": "excluded", "ema": "excluded", "volume": "excluded", "confirmation": "excluded"},
+      "expect": {"score": 0, "max_score": 0, "band": "WEAK", "cap": null}
+    }
+  ]
+}
