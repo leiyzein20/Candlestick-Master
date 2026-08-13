@@ -1,0 +1,821 @@
+//@version=6
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  CANDLESTICK MASTER 45 — OHLC ENGINE
+//  ───────────────────────────────────────────────────────────────────────────────────
+//  · 45 candlestick patterns detected from pure OHLC geometry (no colour assumptions)
+//  · Every pattern only prints on ITS OWN ideal time frame(s) — a pattern with three
+//    ideal time frames prints on all three, a D1-only pattern prints only on D1
+//  · Chart shows the ABBREVIATION only (e.g. "BEC"); hover / tap it for the full card
+//  · Confirmation engine cross-checks Trend + Location + RSI + EMA + Volume
+//  · Non-repainting: a pattern is evaluated on the bar after it completes, and the
+//    label is drawn back on the pattern candle itself
+//
+//  Direction codes:  1 = bullish, -1 = bearish, 0 = neutral / dual-direction
+//  Category codes :  1 = single candle, 2 = double candle, 3 = triple & multi
+//  Priority codes :  1 = Must, 2 = Important, 3 = Rare
+// ═══════════════════════════════════════════════════════════════════════════════════════
+indicator("Candlestick Master 45 — OHLC Engine", "CS45", overlay = true, max_labels_count = 500)
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ① DISPLAY
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_DSP = "① Display"
+int    maxPerBar   = input.int(3, "Max labels per candle", minval = 1, maxval = 8, group = G_DSP)
+string labelSize   = input.string("Tiny", "Label size", options = ["Tiny", "Small", "Normal"], group = G_DSP)
+bool   showGlyph   = input.bool(false, "Append status glyph to abbreviation (BEC✓)", group = G_DSP)
+float  labelOff    = input.float(0.6, "Label distance from candle (× ATR)", minval = 0.1, maxval = 3.0, step = 0.1, group = G_DSP)
+bool   showDash    = input.bool(true, "Show dashboard table", group = G_DSP)
+string dashPos     = input.string("Top Right", "Dashboard position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = G_DSP)
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ② FILTERS — this is where you say "only bullish", "only continuation", etc.
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_FLT = "② Filters"
+string fDir  = input.string("All", "Direction", options = ["All", "Bullish only", "Bearish only", "Neutral only"], group = G_FLT)
+string fKind = input.string("All", "Pattern role", options = ["All", "Reversal only", "Continuation only", "Exhaustion only", "Indecision only"], group = G_FLT)
+bool   fCat1 = input.bool(true, "Single-candle patterns (12)", group = G_FLT)
+bool   fCat2 = input.bool(true, "Double-candle patterns (13)", group = G_FLT)
+bool   fCat3 = input.bool(true, "Triple & multi-candle patterns (20)", group = G_FLT)
+string fPrio = input.string("All", "Priority", options = ["All", "Must only", "Must + Important"], group = G_FLT)
+int    fRel  = input.int(0, "Minimum reliability %", minval = 0, maxval = 95, group = G_FLT)
+string fOnly = input.string("", "Whitelist — show ONLY these codes (CSV, blank = all)", group = G_FLT, tooltip = "Example: BEC,HAM,MST  — only those three patterns will ever print.")
+string fSkip = input.string("", "Blacklist — never show these codes (CSV)", group = G_FLT)
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ③ TIME FRAME ENGINE
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_TF   = "③ Time Frame Engine"
+string tfMode = input.string("Strict — ideal time frames only", "Time frame gating", options = ["Strict — ideal time frames only", "Ideal ± 1 step", "Off — show on every time frame"], group = G_TF, tooltip = "Strict is how a candlestick master trades: a Morning Star is a H4/D1 signal, it is noise on M1. 'Ideal ± 1 step' lets a H4·D1 pattern also print on H2 and W1.")
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ④ CONFIRMATION ENGINE
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_CNF  = "④ Confirmation Engine"
+bool   confirmOn = input.bool(true, "Wait for the confirmation candle (recommended)", group = G_CNF, tooltip = "ON  = the pattern is judged by the candle that follows it: close beyond the pattern high/low = CONFIRMED, close beyond the opposite extreme = FAILED. The label is drawn back onto the pattern candle. Nothing repaints.\nOFF = the label prints the moment the pattern candle closes, status = FORMING.")
+string showWhat  = input.string("Confirmed + Pending", "Print which signals", options = ["Confirmed only", "Confirmed + Pending", "Everything (incl. failed)"], group = G_CNF)
+int    minScore  = input.int(0, "Minimum validation score (0-5)", minval = 0, maxval = 5, group = G_CNF, tooltip = "The 5 confirmations are Trend, Location, RSI, EMA and Volume. Set to 4 to only see A+ setups.")
+
+string G_TRD  = "④a Trend"
+string trendMode = input.string("EMA slope + position", "Trend definition", options = ["EMA slope + position", "Price vs EMA only", "Momentum (ROC)", "Off"], group = G_TRD)
+int    trendLen  = input.int(50, "Trend EMA length", minval = 5, group = G_TRD)
+int    trendSlp  = input.int(10, "Slope lookback (bars)", minval = 2, group = G_TRD)
+
+string G_LOC  = "④b Location (support / resistance)"
+int    pivL      = input.int(10, "Pivot left bars", minval = 2, group = G_LOC)
+int    pivR      = input.int(3, "Pivot right bars", minval = 1, group = G_LOC)
+float  locTol    = input.float(0.5, "Distance to level counts as 'at' the level (× ATR)", minval = 0.05, step = 0.05, group = G_LOC)
+int    locMem    = input.int(8, "How many recent levels to remember", minval = 2, maxval = 20, group = G_LOC)
+
+string G_RSI  = "④c RSI"
+int    rsiLen    = input.int(14, "RSI length", minval = 2, group = G_RSI)
+int    rsiOS     = input.int(35, "Oversold level", minval = 5, maxval = 50, group = G_RSI)
+int    rsiOB     = input.int(65, "Overbought level", minval = 50, maxval = 95, group = G_RSI)
+int    divFresh  = input.int(30, "Divergence stays valid for N bars", minval = 5, group = G_RSI)
+
+string G_EMA  = "④d EMA"
+int    emaFast   = input.int(20, "Fast EMA (the one price must reclaim / lose)", minval = 2, group = G_EMA)
+bool   emaPlot   = input.bool(false, "Plot the EMAs", group = G_EMA)
+
+string G_VOL  = "④e Volume"
+int    volLen    = input.int(20, "Volume average length", minval = 2, group = G_VOL)
+float  volMult   = input.float(1.2, "Above-average multiplier", minval = 1.0, step = 0.1, group = G_VOL)
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ⑤ PATTERN GEOMETRY — wick / body tolerances
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_GEO = "⑤ Pattern Geometry"
+int    bodyAvgLen = input.int(20, "Body average length (defines long / small)", minval = 5, group = G_GEO)
+float  dojiPct    = input.float(0.06, "Doji: body ≤ this share of the range", minval = 0.01, maxval = 0.25, step = 0.01, group = G_GEO)
+float  longMult   = input.float(1.25, "Long body: ≥ this × average body", minval = 1.0, step = 0.05, group = G_GEO)
+float  smallMult  = input.float(0.60, "Small body: ≤ this × average body", minval = 0.1, maxval = 1.0, step = 0.05, group = G_GEO)
+float  hamWick    = input.float(2.0, "Hammer family: long shadow ≥ this × body", minval = 1.2, step = 0.1, group = G_GEO)
+float  hamOpp     = input.float(0.15, "Hammer family: opposite shadow ≤ this × range", minval = 0.0, maxval = 0.5, step = 0.01, group = G_GEO)
+float  maruWick   = input.float(0.05, "Marubozu: each shadow ≤ this × range", minval = 0.0, maxval = 0.2, step = 0.01, group = G_GEO)
+float  tweezTol   = input.float(0.10, "Tweezers: high/low equality tolerance (× ATR)", minval = 0.01, maxval = 0.5, step = 0.01, group = G_GEO)
+string gapMode    = input.string("Body gap (forex-friendly)", "Gap rule", options = ["Strict (wick gap)", "Body gap (forex-friendly)", "Off (ignore gap rule)"], group = G_GEO, tooltip = "Spot forex trades 24/5 and almost never gaps, so classic gap patterns (Morning Star, Tri-Star, Breakaway, Upside Gap Two Crows…) would never trigger under the strict stock definition. 'Body gap' keeps the psychology — the bodies must not overlap — without demanding a true price gap.")
+
+// ───────────────────────────────────────────────────────────────────────────────────────
+// ⑥ ALERTS
+// ───────────────────────────────────────────────────────────────────────────────────────
+string G_ALR = "⑥ Alerts"
+bool   alertsOn = input.bool(true, "Fire alert() on every printed pattern", group = G_ALR, tooltip = "Create the alert with condition = 'Any alert() function call'.")
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  CORE OHLC GEOMETRY
+// ═══════════════════════════════════════════════════════════════════════════════════════
+float bodyTop = math.max(open, close)
+float bodyBot = math.min(open, close)
+float body    = bodyTop - bodyBot
+float rng     = high - low
+float upWick  = high - bodyTop
+float dnWick  = bodyBot - low
+bool  isBull  = close > open
+bool  isBear  = close < open
+float bodyPct = rng > 0 ? body / rng : 0.0
+float atr     = ta.atr(14)
+float avgBody = nz(ta.sma(body, bodyAvgLen), body)
+
+bool  isDoji   = rng > 0 and body <= rng * dojiPct
+bool  notDoji  = not isDoji
+bool  isLong   = body >= avgBody * longMult
+bool  isSmall  = body <= avgBody * smallMult
+bool  isMaru   = rng > 0 and upWick <= rng * maruWick and dnWick <= rng * maruWick
+
+// rolling extremes for pattern boxes (1 … 5 candles back, inclusive of the current one)
+float hh1 = high
+float ll1 = low
+float hh2 = math.max(high, high[1])
+float ll2 = math.min(low, low[1])
+float hh3 = math.max(hh2, high[2])
+float ll3 = math.min(ll2, low[2])
+float hh4 = math.max(hh3, high[3])
+float ll4 = math.min(ll3, low[3])
+float hh5 = math.max(hh4, high[4])
+float ll5 = math.min(ll4, low[4])
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  CONTEXT ENGINES
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// — Trend —
+float emaT   = ta.ema(close, trendLen)
+float emaF   = ta.ema(close, emaFast)
+float roc    = ta.roc(close, trendSlp)
+bool  slopeU = emaT > emaT[trendSlp]
+bool  slopeD = emaT < emaT[trendSlp]
+bool  upRaw  = trendMode == "EMA slope + position" ? (close > emaT and slopeU) : trendMode == "Price vs EMA only" ? close > emaT : trendMode == "Momentum (ROC)" ? roc > 0 : false
+bool  dnRaw  = trendMode == "EMA slope + position" ? (close < emaT and slopeD) : trendMode == "Price vs EMA only" ? close < emaT : trendMode == "Momentum (ROC)" ? roc < 0 : false
+bool  trendUse = trendMode != "Off"
+
+// trend state measured BEFORE the pattern starts (n = number of candles in the pattern)
+bool tUp1 = trendUse ? upRaw[1] : true
+bool tDn1 = trendUse ? dnRaw[1] : true
+bool tUp2 = trendUse ? upRaw[2] : true
+bool tDn2 = trendUse ? dnRaw[2] : true
+bool tUp3 = trendUse ? upRaw[3] : true
+bool tDn3 = trendUse ? dnRaw[3] : true
+bool tUp4 = trendUse ? upRaw[4] : true
+bool tDn4 = trendUse ? dnRaw[4] : true
+bool tUp5 = trendUse ? upRaw[5] : true
+bool tDn5 = trendUse ? dnRaw[5] : true
+
+// — Location: recent swing highs / lows act as resistance / support —
+var array<float> SUP = array.new<float>(0)
+var array<float> RES = array.new<float>(0)
+float pvLo = ta.pivotlow(low, pivL, pivR)
+float pvHi = ta.pivothigh(high, pivL, pivR)
+if not na(pvLo)
+    array.unshift(SUP, pvLo)
+    if array.size(SUP) > locMem
+        array.pop(SUP)
+if not na(pvHi)
+    array.unshift(RES, pvHi)
+    if array.size(RES) > locMem
+        array.pop(RES)
+
+nearLvl(array<float> a, float px, float tol) =>
+    bool hit = false
+    if array.size(a) > 0
+        for i = 0 to array.size(a) - 1
+            if math.abs(array.get(a, i) - px) <= tol
+                hit := true
+    hit
+
+bool atSupport    = nearLvl(SUP, low, atr * locTol)
+bool atResistance = nearLvl(RES, high, atr * locTol)
+
+// — RSI + pivot-based divergence —
+float rsiVal = ta.rsi(close, rsiLen)
+var float pLo1 = na
+var float pLo2 = na
+var float rLo1 = na
+var float rLo2 = na
+var int   bLo1 = na
+var float pHi1 = na
+var float pHi2 = na
+var float rHi1 = na
+var float rHi2 = na
+var int   bHi1 = na
+if not na(pvLo)
+    pLo2 := pLo1
+    rLo2 := rLo1
+    pLo1 := pvLo
+    rLo1 := rsiVal[pivR]
+    bLo1 := bar_index
+if not na(pvHi)
+    pHi2 := pHi1
+    rHi2 := rHi1
+    pHi1 := pvHi
+    rHi1 := rsiVal[pivR]
+    bHi1 := bar_index
+bool bullDiv = not na(pLo2) and pLo1 < pLo2 and rLo1 > rLo2 and nz(bar_index - bLo1, 9999) <= divFresh
+bool bearDiv = not na(pHi2) and pHi1 > pHi2 and rHi1 < rHi2 and nz(bar_index - bHi1, 9999) <= divFresh
+
+// — EMA reclaim / loss —
+bool emaReclaim = close > emaF and close[1] <= emaF[1]
+bool emaLoss    = close < emaF and close[1] >= emaF[1]
+
+// — Volume —
+float volAvg = ta.sma(volume, volLen)
+bool  volOn  = not na(volume) and volume > 0
+bool  volHot = volOn and not na(volAvg) and volume > volAvg * volMult
+
+plot(emaPlot ? emaF : na, "EMA fast", color.new(color.orange, 0), 1)
+plot(emaPlot ? emaT : na, "EMA trend", color.new(color.blue, 0), 1)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  TIME FRAME ENGINE
+// ═══════════════════════════════════════════════════════════════════════════════════════
+int tfSec = timeframe.in_seconds(timeframe.period)
+string tfCode = tfSec < 120 ? "M1" : tfSec < 180 ? "M2" : tfSec < 300 ? "M3" : tfSec < 600 ? "M5" : tfSec < 900 ? "M10" : tfSec < 1800 ? "M15" : tfSec < 2700 ? "M30" : tfSec < 3600 ? "M45" : tfSec < 7200 ? "H1" : tfSec < 10800 ? "H2" : tfSec < 14400 ? "H3" : tfSec < 21600 ? "H4" : tfSec < 28800 ? "H6" : tfSec < 43200 ? "H8" : tfSec < 86400 ? "H12" : tfSec < 604800 ? "D1" : tfSec < 2592000 ? "W1" : "MN1"
+
+var array<string> LADDER = array.from("M1", "M2", "M3", "M5", "M10", "M15", "M30", "M45", "H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1", "W1", "MN1")
+int tfIdx = array.indexof(LADDER, tfCode)
+
+// distance (in ladder steps) between the chart time frame and the closest ideal time frame
+tfDistance(string ideal) =>
+    int best = 99
+    for i = 0 to array.size(LADDER) - 1
+        if str.contains(ideal, "|" + array.get(LADDER, i) + "|")
+            int d = math.abs(i - tfIdx)
+            if d < best
+                best := d
+    best
+
+prettyTF(string ideal) =>
+    str.replace_all(str.substring(ideal, 1, str.length(ideal) - 1), "|", " · ")
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  PATTERN REGISTRY
+//  addPat(code, name, number, category, direction, priority, reliability%, idealTF,
+//         role, candles, whatItIs, howToRecognize, stopLoss, takeProfit, proTip)
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var array<string> P_CODE = array.new<string>(0)
+var array<string> P_NAME = array.new<string>(0)
+var array<string> P_TF   = array.new<string>(0)
+var array<string> P_ROLE = array.new<string>(0)
+var array<string> P_INFO = array.new<string>(0)
+var array<int>    P_NUM  = array.new<int>(0)
+var array<int>    P_CAT  = array.new<int>(0)
+var array<int>    P_DIR  = array.new<int>(0)
+var array<int>    P_PRIO = array.new<int>(0)
+var array<int>    P_REL  = array.new<int>(0)
+var array<int>    P_LEN  = array.new<int>(0)
+var array<bool>   P_EN   = array.new<bool>(0)
+
+addPat(string code, string name, int num, int cat, int dir, int prio, int rel, string tf, string role, int len, string what, string howto, string sl, string tp, string tip) =>
+    if barstate.isfirst
+        array.push(P_CODE, code)
+        array.push(P_NAME, name)
+        array.push(P_TF, tf)
+        array.push(P_ROLE, role)
+        array.push(P_NUM, num)
+        array.push(P_CAT, cat)
+        array.push(P_DIR, dir)
+        array.push(P_PRIO, prio)
+        array.push(P_REL, rel)
+        array.push(P_LEN, len)
+        array.push(P_INFO, "WHAT IT IS\n" + what + "\n\nHOW TO RECOGNIZE\n" + howto + "\n\nSTOP LOSS\n" + sl + "\n\nTAKE PROFIT\n" + tp + "\n\nPRO TIP\n" + tip)
+
+// ── SINGLE CANDLE (01–12) ──────────────────────────────────────────────────────────────
+addPat("HAM", "Hammer", 1, 1, 1, 1, 72, "|H1|H4|D1|", "Reversal", 1,
+      "After a downtrend a small body sits at the TOP of the range with a lower shadow at least 2x the body. Sellers pushed price deep down, buyers slammed it back to the open. Body colour does not decide validity — the OHLC relationship does.",
+      "A clear prior downtrend. Small body (green OR red) in the top third of the range. Lower shadow >= 2x body, upper shadow very short or absent.",
+      "A few ticks below the tip of the lower shadow.",
+      "TP1 at the nearest resistance, TP2 at the previous swing high. Keep a minimum 1:2 risk:reward.",
+      "A green hammer is marginally stronger than a red one — both are valid. It grades A+ only when it lands on a support / demand zone with RSI bullish divergence.")
+addPat("HGM", "Hanging Man", 2, 1, -1, 1, 68, "|H1|H4|D1|", "Reversal", 1,
+      "The same shape as the hammer but printed after an UPTREND. The long lower shadow proves sellers are already able to drive price deep inside the session — the first crack in buyer control.",
+      "A clear prior uptrend. Small body at the top of the range, lower shadow >= 2x body, tiny or absent upper shadow.",
+      "Above the high of the hanging man.",
+      "Nearest support, then the previous swing low.",
+      "Far weaker than the hammer without confirmation — always demand a bearish close below its low, ideally with volume.")
+addPat("IHM", "Inverted Hammer", 3, 1, 1, 2, 65, "|H1|H4|D1|", "Reversal", 1,
+      "After a downtrend, buyers manage a strong intrabar push up but cannot hold it. The long upper shadow shows demand is testing the water — a bottoming attempt that must be confirmed.",
+      "A clear prior downtrend. Small body at the bottom of the range, upper shadow >= 2x body, tiny or absent lower shadow.",
+      "Below the low of the inverted hammer.",
+      "Nearest resistance, then the previous swing high.",
+      "This is the weakest of the hammer family alone — it only becomes tradeable when the next candle closes above its high on rising volume.")
+addPat("SHS", "Shooting Star", 4, 1, -1, 1, 71, "|H1|H4|D1|", "Reversal", 1,
+      "After an uptrend, price spikes up and is rejected all the way back to the open. The long upper shadow is trapped-buyer inventory sitting above the market.",
+      "A clear prior uptrend. Small body at the bottom of the range, upper shadow >= 2x body, tiny or absent lower shadow.",
+      "A few ticks above the tip of the upper shadow.",
+      "Nearest support, then the previous swing low.",
+      "Best when the upper shadow pierces a resistance / supply zone and closes back below it — that is a failed breakout plus a shooting star in one candle.")
+addPat("BMZ", "Bullish Marubozu", 5, 1, 1, 2, 66, "|M15|H1|H4|", "Continuation", 1,
+      "A full-bodied green candle with virtually no shadows: buyers controlled the candle from the first tick to the last. Pure momentum.",
+      "Long body (>= 1.25x the average body), upper and lower shadows each <= 5% of the range, close > open.",
+      "Below the marubozu low (or below its 50% level for a tighter stop).",
+      "Measured move equal to the marubozu body projected from its close.",
+      "A marubozu that closes a range breakout is a continuation signal; a marubozu into a resistance zone is often the exhaustion candle instead — always read the location.")
+addPat("SMZ", "Bearish Marubozu", 6, 1, -1, 2, 66, "|M15|H1|H4|", "Continuation", 1,
+      "A full-bodied red candle with virtually no shadows: sellers controlled every tick of the candle.",
+      "Long body (>= 1.25x the average body), both shadows <= 5% of the range, close < open.",
+      "Above the marubozu high (or its 50% level).",
+      "Measured move equal to the body projected down from its close.",
+      "Inside an established downtrend this is a continuation entry; after an extended drop into support it is frequently the capitulation candle.")
+addPat("DOJ", "Doji", 7, 1, 0, 1, 55, "|H1|H4|D1|", "Indecision", 1,
+      "Open and close are effectively equal. Buyers and sellers finished the candle exactly where they started — a complete stalemate. Direction comes from what breaks the doji's range.",
+      "Body <= 6% of the total range, with a range that is not degenerate (>= 25% of ATR).",
+      "Beyond the opposite extreme of the doji once the breakout side is known.",
+      "The next structural level in the breakout direction.",
+      "A doji is a question, not an answer. It only becomes a signal at the end of an extended trend or at a major level — mid-range dojis are pure noise.")
+addPat("DFD", "Dragonfly Doji", 8, 1, 1, 2, 69, "|H1|H4|D1|", "Reversal", 1,
+      "Open, high and close sit at the top while a long lower shadow shows a complete rejection of lower prices. The strongest member of the doji family for bottoms.",
+      "Doji body, lower shadow >= 60% of the range, upper shadow <= 15% of the range.",
+      "Below the tip of the lower shadow.",
+      "Nearest resistance, then the swing high.",
+      "A dragonfly at support with a volume spike is functionally a hammer with an even cleaner rejection — treat it as the higher-quality version.")
+addPat("GSD", "Gravestone Doji", 9, 1, -1, 2, 69, "|H1|H4|D1|", "Reversal", 1,
+      "Open, low and close sit at the bottom while a long upper shadow marks a total rejection of higher prices — the mirror of the dragonfly.",
+      "Doji body, upper shadow >= 60% of the range, lower shadow <= 15% of the range.",
+      "Above the tip of the upper shadow.",
+      "Nearest support, then the swing low.",
+      "A gravestone printed exactly on a supply zone or a prior swing high is one of the cleanest short triggers on the H4/D1.")
+addPat("LLD", "Long-Legged Doji", 10, 1, 0, 2, 58, "|H1|H4|D1|", "Indecision", 1,
+      "A doji with long shadows on BOTH sides: violent two-sided fighting that ends in a perfect draw. Volatility expansion with zero resolution.",
+      "Doji body with the upper and lower shadow each >= 30% of the range.",
+      "Beyond the opposite extreme once price picks a side.",
+      "The first structural level in the resolution direction.",
+      "Do not trade the long-legged doji itself — trade the break of its range. It is most valuable as a warning that the current trend has lost conviction.")
+addPat("SPT", "Spinning Top", 11, 1, 0, 2, 54, "|H1|H4|", "Indecision", 1,
+      "A small body with shadows on both sides that are each longer than the body. Neither side could finish what they started — momentum is draining.",
+      "Body <= 35% of the range but larger than a doji, with both shadows >= the body.",
+      "Beyond the opposite extreme of the candle.",
+      "The next structural level.",
+      "A spinning top after three or more strong trend candles is an early exhaustion warning — tighten stops rather than reverse.")
+addPat("BLH", "Belt Hold", 12, 1, 0, 3, 60, "|H1|H4|D1|", "Reversal", 1,
+      "A long candle that opens exactly at its extreme and never trades back through it: the bullish version opens at the low, the bearish version opens at the high. One side seized control at the opening tick and never let go.",
+      "Bullish: long green body, lower shadow <= 5% of the range, after a downtrend. Bearish: long red body, upper shadow <= 5% of the range, after an uptrend.",
+      "Beyond the opening extreme of the belt hold (its low for bullish, its high for bearish).",
+      "The nearest opposing structural level, then the prior swing point.",
+      "A belt hold that opens right off a session open (London / New York) is far more meaningful in forex than one that opens mid-session.")
+
+// ── DOUBLE CANDLE (13–25) ──────────────────────────────────────────────────────────────
+addPat("BEC", "Bullish Engulfing", 13, 2, 1, 1, 78, "|H1|H4|D1|", "Reversal", 2,
+      "After a downtrend a small bearish candle appears whose body is fully engulfed by a large bullish candle. One of the most reliable and best-known upside reversal patterns.",
+      "Prior downtrend. Candle 1 bearish, candle 2 bullish with its BODY covering the entire body of candle 1 (shadows may exceed). The larger the engulfing ratio the stronger.",
+      "Below the low of the engulfing pattern.",
+      "Nearest resistance then the swing high. This pattern often starts long moves — consider trailing.",
+      "Engulfing at major support with heavy volume is an A+ setup. Do not require the shadows to be engulfed — the body alone is the definition.")
+addPat("SEC", "Bearish Engulfing", 14, 2, -1, 1, 77, "|H1|H4|D1|", "Reversal", 2,
+      "After an uptrend a small bullish candle is completely swallowed by a large bearish candle: an instant and total transfer of control from buyers to sellers.",
+      "Prior uptrend. Candle 1 bullish, candle 2 bearish whose body fully covers candle 1's body.",
+      "Above the high of the engulfing pattern.",
+      "Nearest support, then the prior swing low.",
+      "The best versions engulf two or three prior candles at once and close on their low (engulfing + marubozu).")
+addPat("BHA", "Bullish Harami", 15, 2, 1, 2, 64, "|H4|D1|", "Reversal", 2,
+      "A large bearish candle is followed by a small bullish candle contained entirely inside its body. Selling pressure suddenly evaporates — the market is 'pregnant' with a reversal.",
+      "Prior downtrend. Candle 1 a long bearish body, candle 2 a small bullish body fully inside candle 1's body.",
+      "Below the low of candle 1.",
+      "Nearest resistance, then the swing high. Take profit earlier than with engulfing — harami moves tend to be slower.",
+      "The harami is a pause signal first and a reversal signal second — it needs the third candle to confirm (that is exactly the Three Inside Up pattern).")
+addPat("SHA", "Bearish Harami", 16, 2, -1, 2, 63, "|H4|D1|", "Reversal", 2,
+      "A large bullish candle followed by a small bearish candle held entirely inside its body — buying momentum stalls abruptly.",
+      "Prior uptrend. Candle 1 a long bullish body, candle 2 a small bearish body inside it.",
+      "Above the high of candle 1.",
+      "Nearest support, then the swing low.",
+      "The smaller candle 2 is relative to candle 1, the sharper the momentum stall — a harami where candle 2 is under one third of candle 1 is the strongest version.")
+addPat("BHC", "Bullish Harami Cross", 17, 2, 1, 2, 70, "|H4|D1|", "Reversal", 2,
+      "A harami whose second candle is a doji: total indecision appearing directly inside the body of a big selling candle. Stronger than the ordinary harami.",
+      "Prior downtrend. Candle 1 a long bearish body, candle 2 a doji whose body sits inside candle 1's body.",
+      "Below the low of candle 1.",
+      "Nearest resistance, then the swing high.",
+      "A harami cross at a support zone is one of the highest-quality low-risk long entries because the stop sits just under candle 1.")
+addPat("SHC", "Bearish Harami Cross", 18, 2, -1, 2, 70, "|H4|D1|", "Reversal", 2,
+      "A harami whose second candle is a doji, printed after an uptrend: buyers walked straight into a wall of indecision.",
+      "Prior uptrend. Candle 1 a long bullish body, candle 2 a doji inside that body.",
+      "Above the high of candle 1.",
+      "Nearest support, then the swing low.",
+      "Treat it as a stronger bearish harami; a gravestone-shaped doji inside the body makes it stronger again.")
+addPat("PLN", "Piercing Line", 19, 2, 1, 1, 71, "|H4|D1|", "Reversal", 2,
+      "After a downtrend, a bullish candle opens at or below the previous low and closes back ABOVE the 50% level of the previous bearish body. Buyers reclaimed more than half of the damage in one candle.",
+      "Prior downtrend. Candle 1 a long bearish body. Candle 2 opens at/below candle 1's low (body gap accepted in forex) and closes above the midpoint of candle 1's body but below candle 1's open.",
+      "Below the low of the two-candle pattern.",
+      "Nearest resistance, then the swing high.",
+      "The deeper candle 2 closes into candle 1's body the better — a close above 75% is nearly an engulfing and should be treated as such.")
+addPat("DCC", "Dark Cloud Cover", 20, 2, -1, 1, 71, "|H4|D1|", "Reversal", 2,
+      "After an uptrend, a bearish candle opens above the previous high and closes back BELOW the 50% level of the previous bullish body — the mirror of the piercing line.",
+      "Prior uptrend. Candle 1 a long bullish body. Candle 2 opens at/above candle 1's high (body gap accepted in forex) and closes below the midpoint of candle 1's body but above candle 1's open.",
+      "Above the high of the two-candle pattern.",
+      "Nearest support, then the swing low.",
+      "Failure to close below the 50% line is NOT a dark cloud — it is just a rejection candle. The 50% rule is the whole pattern.")
+addPat("TWB", "Tweezer Bottom", 21, 2, 1, 2, 62, "|M15|H1|H4|", "Reversal", 2,
+      "Two consecutive candles print virtually the SAME low: the market tested a price twice and was refused twice. A double bottom compressed into two candles.",
+      "Prior downtrend. Candle 1 bearish, candle 2 bullish, with the two lows equal inside a small tolerance.",
+      "Below the shared low.",
+      "Nearest resistance, then the swing high.",
+      "Tweezers are only meaningful at a level that already matters — a tweezer bottom in the middle of a range is a coincidence, not a signal.")
+addPat("TWT", "Tweezer Top", 22, 2, -1, 2, 62, "|M15|H1|H4|", "Reversal", 2,
+      "Two consecutive candles print virtually the same HIGH — price was rejected twice from the identical level.",
+      "Prior uptrend. Candle 1 bullish, candle 2 bearish, with the two highs equal inside a small tolerance.",
+      "Above the shared high.",
+      "Nearest support, then the swing low.",
+      "The strongest version has a long upper shadow on both candles: the level was attacked twice and defended twice.")
+addPat("BKK", "Bullish Kicker", 23, 2, 1, 3, 79, "|H4|D1|W1|", "Reversal", 2,
+      "A bearish candle is followed by a bullish candle that opens ABOVE the previous body and never trades back into it. Nobody who sold gets a second chance — usually driven by news.",
+      "Candle 1 bearish. Candle 2 bullish, opening above candle 1's body with no overlap, ideally closing near its own high.",
+      "Below the open of candle 2 (the kick level).",
+      "Let it run — kickers frequently start multi-week trends. Trail behind structure.",
+      "The kicker ignores prior trend entirely; it is defined by the violence of the reversal. In forex look for it at Monday opens and after high-impact news.")
+addPat("SKK", "Bearish Kicker", 24, 2, -1, 3, 79, "|H4|D1|W1|", "Reversal", 2,
+      "A bullish candle followed by a bearish candle opening below the previous body with no overlap: every buyer is trapped instantly.",
+      "Candle 1 bullish. Candle 2 bearish, opening below candle 1's body with no overlap.",
+      "Above the open of candle 2.",
+      "Trail behind structure — kickers often start extended moves.",
+      "Do not fade a kicker. Waiting for a pullback that never comes is the standard mistake with this pattern.")
+addPat("SPL", "Separating Lines", 25, 2, 0, 3, 60, "|H1|H4|", "Continuation", 2,
+      "A counter-trend candle is completely negated by the next candle, which opens at the SAME open price and runs back with the trend. The pullback is cancelled and the trend resumes.",
+      "Bullish: uptrend, candle 1 bearish, candle 2 bullish opening at candle 1's open and closing strongly higher. Bearish: mirror image in a downtrend.",
+      "Beyond the shared open price.",
+      "The prior trend extreme, then a measured move.",
+      "This is a continuation pattern — never trade it against the dominant trend. Its whole meaning is 'the pullback failed'.")
+
+// ── TRIPLE & MULTI CANDLE (26–45) ──────────────────────────────────────────────────────
+addPat("MST", "Morning Star", 26, 3, 1, 1, 76, "|H4|D1|", "Reversal", 3,
+      "The classic three-candle bullish reversal: a big red candle, a small indecisive star that separates from it, then a big green candle driving back into the first body. Panic, pause, recovery.",
+      "Prior downtrend. Candle 1 a long bearish body, candle 2 a small body separated below candle 1's body, candle 3 a bullish candle closing above the midpoint of candle 1's body.",
+      "Below the low of the star (candle 2).",
+      "TP1 the midpoint of the down leg, TP2 the swing high.",
+      "The deeper candle 3 closes into candle 1 the stronger the signal. A close above candle 1's open converts it into a full reversal rather than a bounce.")
+addPat("EST", "Evening Star", 27, 3, -1, 1, 76, "|H4|D1|", "Reversal", 3,
+      "The classic three-candle bearish reversal: a big green candle, a small star that separates above it, then a big red candle tearing back into the first body.",
+      "Prior uptrend. Candle 1 a long bullish body, candle 2 a small body separated above it, candle 3 a bearish candle closing below the midpoint of candle 1's body.",
+      "Above the high of the star (candle 2).",
+      "TP1 the midpoint of the up leg, TP2 the swing low.",
+      "An evening star at an all-time / multi-month high with a volume spike on candle 3 is one of the most dependable tops in the catalogue.")
+addPat("MDS", "Morning Doji Star", 28, 3, 1, 2, 79, "|H4|D1|", "Reversal", 3,
+      "A morning star whose middle candle is a perfect doji — total indecision precisely at the bottom of the move. The purest form of the three-candle bottom.",
+      "Prior downtrend. Candle 1 long bearish, candle 2 a DOJI separated below it, candle 3 bullish closing above candle 1's body midpoint.",
+      "Below the doji low.",
+      "TP1 the midpoint of the down leg, TP2 the swing high.",
+      "Statistically stronger than the plain morning star because the doji proves the selling pressure reached exactly zero.")
+addPat("EDS", "Evening Doji Star", 29, 3, -1, 2, 79, "|H4|D1|", "Reversal", 3,
+      "An evening star whose middle candle is a doji — perfect indecision at the very top.",
+      "Prior uptrend. Candle 1 long bullish, candle 2 a DOJI separated above it, candle 3 bearish closing below candle 1's body midpoint.",
+      "Above the doji high.",
+      "TP1 the midpoint of the up leg, TP2 the swing low.",
+      "The doji high becomes a reference level for weeks — if price later reclaims it, the whole bearish thesis is void.")
+addPat("TWS", "Three White Soldiers", 30, 3, 1, 1, 74, "|H4|D1|", "Reversal", 3,
+      "Three consecutive long green candles, each opening inside the previous body and closing progressively higher with small upper shadows: a full, orderly buyer assault.",
+      "Three bullish candles with rising closes, each body reasonably long, each open inside the previous candle's body, and each upper shadow small.",
+      "Below the low of the first soldier (or below soldier 2 for a tighter stop).",
+      "Trail behind each new candle low — this pattern usually starts a trend rather than a bounce.",
+      "If the bodies are shrinking and the upper shadows are growing you do NOT have three soldiers, you have an Advance Block (#43) — the bearish opposite.")
+addPat("TBC", "Three Black Crows", 31, 3, -1, 1, 74, "|H4|D1|", "Reversal", 3,
+      "Three consecutive long red candles with progressively lower closes and small lower shadows — total seller domination.",
+      "Three bearish candles with falling closes, long bodies, each opening inside the previous body, each lower shadow small.",
+      "Above the high of the first crow.",
+      "Trail behind each new candle high.",
+      "After three crows the market is often short-term oversold — the professional entry is the first weak pullback, not a market order on the third close.")
+addPat("TIU", "Three Inside Up", 32, 3, 1, 2, 70, "|H4|D1|", "Reversal", 3,
+      "A bullish harami that gets its confirmation candle: the staged version of an upside reversal. Stall, contain, then break out.",
+      "Prior downtrend. Candles 1-2 form a bullish harami (long red, small green inside it). Candle 3 is bullish and closes above candle 2's high.",
+      "Below the low of candle 1.",
+      "Nearest resistance, then the swing high.",
+      "This is simply a harami you were patient enough to wait on — the win rate improvement over the raw harami is significant.")
+addPat("TID", "Three Inside Down", 33, 3, -1, 2, 70, "|H4|D1|", "Reversal", 3,
+      "A bearish harami plus its confirmation candle — a staged downside reversal.",
+      "Prior uptrend. Candles 1-2 form a bearish harami. Candle 3 is bearish and closes below candle 2's low.",
+      "Above the high of candle 1.",
+      "Nearest support, then the swing low.",
+      "Candle 3 closing below candle 1's low as well makes it an accelerated version worth a larger size.")
+addPat("TOU", "Three Outside Up", 34, 3, 1, 2, 73, "|H4|D1|", "Reversal", 3,
+      "A bullish engulfing plus a confirmation candle: the affirmed version of the market's best-known bullish reversal.",
+      "Prior downtrend. Candles 1-2 form a bullish engulfing. Candle 3 is bullish and closes above candle 2's close.",
+      "Below the low of the engulfing candle.",
+      "Nearest resistance, then the swing high; often worth trailing.",
+      "This is the highest-probability form of the engulfing family because the third candle proves the takeover held.")
+addPat("TOD", "Three Outside Down", 35, 3, -1, 2, 73, "|H4|D1|", "Reversal", 3,
+      "A bearish engulfing plus a confirmation candle — an affirmed downside reversal.",
+      "Prior uptrend. Candles 1-2 form a bearish engulfing. Candle 3 is bearish and closes below candle 2's close.",
+      "Above the high of the engulfing candle.",
+      "Nearest support, then the swing low.",
+      "If candle 3 is also a marubozu the sellers are unopposed — that is the version that runs.")
+addPat("R3M", "Rising Three Methods", 36, 3, 1, 2, 72, "|H4|D1|", "Continuation", 5,
+      "A pause inside an uptrend: a big green candle, three small candles drifting back but staying inside its range, then another big green candle breaking to new highs. The trend simply took a breath.",
+      "Candle 1 a long bullish body. Candles 2-4 small bodies (mostly bearish) that all stay inside candle 1's range. Candle 5 bullish, closing above candle 1's high.",
+      "Below the lowest point of the three resting candles.",
+      "A measured move equal to candle 1's range projected from the breakout.",
+      "The three resting candles must NOT break candle 1's low. If they do, it is a reversal forming, not a continuation.")
+addPat("F3M", "Falling Three Methods", 37, 3, -1, 2, 72, "|H4|D1|", "Continuation", 5,
+      "A pause inside a downtrend: a big red candle, three small candles drifting up inside its range, then another big red candle breaking to new lows.",
+      "Candle 1 a long bearish body. Candles 2-4 small bodies (mostly bullish) inside candle 1's range. Candle 5 bearish, closing below candle 1's low.",
+      "Above the highest point of the three resting candles.",
+      "A measured move equal to candle 1's range projected down from the breakdown.",
+      "This is the cleanest 'sell the pullback' template in the catalogue because the risk level is defined by the resting candles.")
+addPat("BKA", "Breakaway (Bullish)", 38, 3, 1, 3, 66, "|D1|", "Reversal", 5,
+      "Sellers running out of breath: a long red candle, a red candle separating below it, two more weak declining candles, then a strong green candle that reclaims all of the fall back to the separation zone.",
+      "Candle 1 a long bearish body. Candle 2 bearish and separated below it. Candles 3-4 continue lower with weakening bodies. Candle 5 a long bullish candle closing back inside the separation zone but below candle 1's body.",
+      "Below the lowest low of the five candles.",
+      "Candle 1's body top — that is where the pattern was born.",
+      "Rare in spot forex because it depends on separation; use the 'Body gap' setting so the pattern is measured on bodies rather than a true price gap.")
+addPat("LDB", "Ladder Bottom", 39, 3, 1, 3, 65, "|D1|", "Reversal", 5,
+      "A broken ladder: three consecutive declining red candles, a fourth red candle that finally shows a meaningful upper shadow (the first buying attempt), then a green candle that opens above the whole previous body.",
+      "Candles 1-3 bearish with progressively lower opens and closes. Candle 4 bearish with a clear upper shadow. Candle 5 bullish, opening above candle 4's body and closing above its high.",
+      "Below the lowest low of the pattern.",
+      "The first resistance shelf, then the previous consolidation.",
+      "The upper shadow on candle 4 is the entire tell — without it this is just a downtrend.")
+addPat("CBS", "Concealing Baby Swallow", 40, 3, 1, 3, 67, "|D1|", "Reversal", 4,
+      "A small swallow hidden inside a big red candle. Seller panic peaks and is instantly absorbed: two long declining reds, a third red separating lower whose upper shadow reaches back into candle 2, then a fourth big red candle that completely engulfs the third.",
+      "Candles 1-2 long bearish (marubozu-like) with candle 2 closing lower. Candle 3 bearish, opening below candle 2's body with a high that reaches back inside candle 2's body. Candle 4 bearish, engulfing the whole of candle 3.",
+      "Below candle 4's low.",
+      "Nearest resistance — this pattern often begins sharp short squeezes.",
+      "All four candles are red, so direction comes only from context. Never enter before a fifth BULLISH candle confirms above candle 4's high.")
+addPat("U3R", "Unique Three River", 41, 3, 1, 3, 62, "|D1|", "Reversal", 3,
+      "A big red candle, then a hammer-like red candle that digs to a new low but closes back up inside, then a small green candle that locks the base without exceeding the previous close.",
+      "Candle 1 a long bearish body. Candle 2 bearish with a new low, a long lower shadow and a body inside candle 1's body. Candle 3 a small bullish candle whose close stays below candle 2's close.",
+      "Below candle 2's low (the river bed).",
+      "Candle 1's body top; scale out early, this pattern gives modest targets.",
+      "Very rare and easy to force. If candle 3 closes above candle 2's close you have something else — do not label it a Unique Three River.")
+addPat("TS3", "Tri-Star (Bullish)", 42, 3, 1, 3, 68, "|D1|W1|", "Reversal", 3,
+      "Three consecutive dojis with the middle one separating below the other two — a three-act equilibrium at the bottom of a move. Extremely rare and, at the right location, extremely telling.",
+      "Prior downtrend. Three consecutive dojis; the middle doji's body sits below both neighbours' bodies.",
+      "Below the lowest low of the three dojis.",
+      "The first meaningful resistance level.",
+      "On spot forex a true tri-star almost never prints with real gaps — run it in 'Body gap' mode and expect it on D1/W1 only.")
+addPat("ADB", "Advance Block", 43, 3, -1, 2, 61, "|H4|D1|", "Exhaustion", 3,
+      "Three soldiers losing step: three green candles with shrinking bodies and lengthening upper shadows. The advance is still going but every candle is meeting more supply than the last.",
+      "Prior uptrend. Three bullish candles with rising closes, each body smaller than the previous, and upper shadows growing (candle 3's upper shadow at least half its body).",
+      "Above the highest high of the three candles.",
+      "Nearest support, then the swing low.",
+      "This is a WARNING, not a short trigger — the professional use is to take partial profit on longs and only reverse after a bearish confirmation candle.")
+addPat("DLB", "Deliberation Pattern", 44, 3, -1, 2, 60, "|H4|D1|", "Exhaustion", 3,
+      "Three soldiers pausing to think: two strong green candles, then a third that shrinks into a small body / spinning top right at the highs. Buyers hesitated for the first time.",
+      "Prior uptrend. Candles 1-2 long bullish with rising closes. Candle 3 a small body opening at or above candle 2's close and finishing near it.",
+      "Above the pattern high.",
+      "Nearest support, then the swing low.",
+      "Close cousin of the Advance Block; the difference is that here the stall arrives all at once on candle 3 instead of gradually.")
+addPat("UGC", "Upside Gap Two Crows", 45, 3, -1, 3, 59, "|D1|", "Exhaustion", 3,
+      "Two black crows perched above a gap: a strong green candle, then a red candle separating above it, then a bigger red candle that swallows the first crow but still closes above the green candle's close. The euphoria is being eaten from the top down.",
+      "Prior uptrend. Candle 1 a long bullish body. Candle 2 bearish, separated above candle 1's body. Candle 3 bearish, engulfing candle 2's body, but still closing above candle 1's close.",
+      "Above the highest high of the pattern.",
+      "Candle 1's close is the first target; a close below it turns this into a full reversal.",
+      "The unfilled separation is the whole point — once price closes back below candle 1's close, stop treating this as exhaustion and start treating it as a trend change.")
+
+// ── build the enabled mask once ────────────────────────────────────────────────────────
+if barstate.isfirst and array.size(P_CODE) > 0
+    string only = str.upper(str.replace_all(fOnly, " ", ""))
+    string skip = str.upper(str.replace_all(fSkip, " ", ""))
+    for i = 0 to array.size(P_CODE) - 1
+        string code = array.get(P_CODE, i)
+        int    cat  = array.get(P_CAT, i)
+        int    prio = array.get(P_PRIO, i)
+        int    rel  = array.get(P_REL, i)
+        string role = array.get(P_ROLE, i)
+        int    dist = tfDistance(array.get(P_TF, i))
+        bool okTF   = tfMode == "Off — show on every time frame" ? true : tfMode == "Ideal ± 1 step" ? dist <= 1 : dist == 0
+        bool okRole = fKind == "All" ? true : fKind == "Reversal only" ? role == "Reversal" : fKind == "Continuation only" ? role == "Continuation" : fKind == "Exhaustion only" ? role == "Exhaustion" : role == "Indecision"
+        bool okCat  = cat == 1 ? fCat1 : cat == 2 ? fCat2 : fCat3
+        bool okPrio = fPrio == "All" ? true : fPrio == "Must only" ? prio == 1 : prio <= 2
+        bool okRel  = rel >= fRel
+        bool okOnly = str.length(only) == 0 or str.contains("," + only + ",", "," + code + ",")
+        bool okSkip = str.length(skip) == 0 or not str.contains("," + skip + ",", "," + code + ",")
+        array.push(P_EN, okTF and okRole and okCat and okPrio and okRel and okOnly and okSkip)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  CANDIDATE COLLECTOR
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var array<int>   C_IDX = array.new<int>(0)
+var array<float> C_HI  = array.new<float>(0)
+var array<float> C_LO  = array.new<float>(0)
+var array<int>   C_DIR = array.new<int>(0)
+array.clear(C_IDX)
+array.clear(C_HI)
+array.clear(C_LO)
+array.clear(C_DIR)
+
+// idx = registry index (pattern number - 1); ok/phi/plo are read one bar back when the
+// confirmation engine is on, so the label is judged by the candle that follows the pattern
+// The direction filter is applied to the EMITTED direction, not the registry direction, so
+// that a bearish Belt Hold stays hidden while "Bullish only" is selected.
+f_check(int idx, bool ok, float phi, float plo, int dirOv) =>
+    bool  okS = confirmOn ? ok[1] : ok
+    float hiS = confirmOn ? phi[1] : phi
+    float loS = confirmOn ? plo[1] : plo
+    bool  okD = fDir == "All" ? true : fDir == "Bullish only" ? dirOv > 0 : fDir == "Bearish only" ? dirOv < 0 : dirOv == 0
+    bool  en  = false
+    if array.size(P_EN) > idx
+        en := array.get(P_EN, idx)
+    if okS and en and okD
+        array.push(C_IDX, idx)
+        array.push(C_HI, hiS)
+        array.push(C_LO, loS)
+        array.push(C_DIR, dirOv)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  GAP / SEPARATION HELPERS  (forex rarely gaps — see the "Gap rule" input)
+// ═══════════════════════════════════════════════════════════════════════════════════════
+bool gOff  = gapMode == "Off (ignore gap rule)"
+bool gWick = gapMode == "Strict (wick gap)"
+
+bool sepDn_1v2 = gOff ? true : gWick ? high[1] < low[2] : bodyTop[1] < bodyBot[2]                                        // star below candle 1
+bool sepUp_1v2 = gOff ? true : gWick ? low[1] > high[2] : bodyBot[1] > bodyTop[2]                                        // star above candle 1
+bool sepTri    = gOff ? true : gWick ? high[1] < math.min(low[2], low[0]) : bodyTop[1] < math.min(bodyBot[2], bodyBot[0])// tri-star middle below
+bool sepDn_3v4 = gOff ? true : gWick ? high[3] < low[4] : bodyTop[3] < bodyBot[4]                                        // breakaway candle 2
+bool sepDn_1v2o = gOff ? true : gWick ? open[1] < low[2] : open[1] < bodyBot[2]                                          // baby swallow candle 3
+bool sepUpOpen = gOff ? true : gWick ? open > high[1] : open > bodyTop[1]                                                // ladder bottom candle 5
+// A kicker is defined by the violence of the open, so even in body mode it must clear the
+// whole previous candle — otherwise every ordinary higher open would qualify as a kicker.
+bool kickUp = gOff ? open >= bodyTop[1] : gWick ? open > high[1] : open >= high[1]
+bool kickDn = gOff ? open <= bodyBot[1] : gWick ? open < low[1] : open <= low[1]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  PATTERN DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ── 01–12 single candle ───────────────────────────────────────────────────────────────
+bool p01 = tDn1 and notDoji and rng > 0 and dnWick >= body * hamWick and upWick <= rng * hamOpp and bodyBot >= low + rng * 0.5
+bool p02 = tUp1 and notDoji and rng > 0 and dnWick >= body * hamWick and upWick <= rng * hamOpp and bodyBot >= low + rng * 0.5
+bool p03 = tDn1 and notDoji and rng > 0 and upWick >= body * hamWick and dnWick <= rng * hamOpp and bodyTop <= high - rng * 0.5
+bool p04 = tUp1 and notDoji and rng > 0 and upWick >= body * hamWick and dnWick <= rng * hamOpp and bodyTop <= high - rng * 0.5
+bool p05 = isBull and isMaru and isLong
+bool p06 = isBear and isMaru and isLong
+bool p07 = isDoji and rng >= atr * 0.25 and not (dnWick >= rng * 0.6) and not (upWick >= rng * 0.6) and not (upWick >= rng * 0.3 and dnWick >= rng * 0.3)
+bool p08 = isDoji and rng >= atr * 0.25 and dnWick >= rng * 0.6 and upWick <= rng * 0.15
+bool p09 = isDoji and rng >= atr * 0.25 and upWick >= rng * 0.6 and dnWick <= rng * 0.15
+bool p10 = isDoji and rng >= atr * 0.25 and upWick >= rng * 0.3 and dnWick >= rng * 0.3
+bool p11 = notDoji and bodyPct <= 0.35 and upWick >= body and dnWick >= body and rng >= atr * 0.3
+bool p12b = tDn1 and isBull and isLong and rng > 0 and dnWick <= rng * maruWick          // bullish belt hold
+bool p12s = tUp1 and isBear and isLong and rng > 0 and upWick <= rng * maruWick          // bearish belt hold
+
+// ── 13–25 double candle ───────────────────────────────────────────────────────────────
+bool p13 = tDn2 and isBear[1] and isBull and close >= bodyTop[1] and open <= bodyBot[1] and body > body[1]
+bool p14 = tUp2 and isBull[1] and isBear and open >= bodyTop[1] and close <= bodyBot[1] and body > body[1]
+bool p15 = tDn2 and isBear[1] and isLong[1] and isBull and bodyTop <= bodyTop[1] and bodyBot >= bodyBot[1] and notDoji
+bool p16 = tUp2 and isBull[1] and isLong[1] and isBear and bodyTop <= bodyTop[1] and bodyBot >= bodyBot[1] and notDoji
+bool p17 = tDn2 and isBear[1] and isLong[1] and isDoji and bodyTop <= bodyTop[1] and bodyBot >= bodyBot[1]
+bool p18 = tUp2 and isBull[1] and isLong[1] and isDoji and bodyTop <= bodyTop[1] and bodyBot >= bodyBot[1]
+bool p19 = tDn2 and isBear[1] and isLong[1] and isBull and open < close[1] and close > (open[1] + close[1]) / 2 and close < open[1]
+bool p20 = tUp2 and isBull[1] and isLong[1] and isBear and open > close[1] and close < (open[1] + close[1]) / 2 and close > open[1]
+bool p21 = tDn2 and isBear[1] and isBull and math.abs(low - low[1]) <= atr * tweezTol and rng >= atr * 0.3
+bool p22 = tUp2 and isBull[1] and isBear and math.abs(high - high[1]) <= atr * tweezTol and rng >= atr * 0.3
+bool p23 = isBear[1] and isBull and kickUp and isLong
+bool p24 = isBull[1] and isBear and kickDn and isLong
+bool p25b = tUp2 and isBear[1] and isBull and math.abs(open - open[1]) <= atr * tweezTol and close > high[1] and isLong
+bool p25s = tDn2 and isBull[1] and isBear and math.abs(open - open[1]) <= atr * tweezTol and close < low[1] and isLong
+
+// ── 26–45 triple & multi candle ───────────────────────────────────────────────────────
+float mid2 = (open[2] + close[2]) / 2
+
+bool p26 = tDn3 and isBear[2] and isLong[2] and isSmall[1] and sepDn_1v2 and isBull and close > mid2 and close > bodyTop[1]
+bool p27 = tUp3 and isBull[2] and isLong[2] and isSmall[1] and sepUp_1v2 and isBear and close < mid2 and close < bodyBot[1]
+bool p28 = tDn3 and isBear[2] and isLong[2] and isDoji[1] and sepDn_1v2 and isBull and close > mid2 and close > bodyTop[1]
+bool p29 = tUp3 and isBull[2] and isLong[2] and isDoji[1] and sepUp_1v2 and isBear and close < mid2 and close < bodyBot[1]
+bool p30 = tDn3 and isBull and isBull[1] and isBull[2] and close > close[1] and close[1] > close[2] and body >= avgBody * 0.8 and body[1] >= avgBody * 0.8 and body[2] >= avgBody * 0.8 and open <= close[1] and open >= open[1] and open[1] <= close[2] and open[1] >= open[2] and upWick <= body * 0.5 and upWick[1] <= body[1] * 0.5
+bool p31 = tUp3 and isBear and isBear[1] and isBear[2] and close < close[1] and close[1] < close[2] and body >= avgBody * 0.8 and body[1] >= avgBody * 0.8 and body[2] >= avgBody * 0.8 and open >= close[1] and open <= open[1] and open[1] >= close[2] and open[1] <= open[2] and dnWick <= body * 0.5 and dnWick[1] <= body[1] * 0.5
+bool p32 = tDn3 and isBear[2] and isLong[2] and isBull[1] and bodyTop[1] <= bodyTop[2] and bodyBot[1] >= bodyBot[2] and isBull and close > high[1]
+bool p33 = tUp3 and isBull[2] and isLong[2] and isBear[1] and bodyTop[1] <= bodyTop[2] and bodyBot[1] >= bodyBot[2] and isBear and close < low[1]
+bool p34 = tDn3 and isBear[2] and isBull[1] and close[1] >= bodyTop[2] and open[1] <= bodyBot[2] and isBull and close > close[1]
+bool p35 = tUp3 and isBull[2] and isBear[1] and open[1] >= bodyTop[2] and close[1] <= bodyBot[2] and isBear and close < close[1]
+bool p36 = tUp5 and isBull[4] and isLong[4] and isSmall[3] and isSmall[2] and isSmall[1] and math.max(math.max(high[3], high[2]), high[1]) <= high[4] and math.min(math.min(low[3], low[2]), low[1]) >= low[4] and close[1] < close[3] and isBull and close > high[4]
+bool p37 = tDn5 and isBear[4] and isLong[4] and isSmall[3] and isSmall[2] and isSmall[1] and math.max(math.max(high[3], high[2]), high[1]) <= high[4] and math.min(math.min(low[3], low[2]), low[1]) >= low[4] and close[1] > close[3] and isBear and close < low[4]
+bool p38 = tDn5 and isBear[4] and isLong[4] and isBear[3] and sepDn_3v4 and close[2] < close[3] and close[1] < close[2] and isBull and isLong and close > bodyTop[3] and close < bodyBot[4]
+bool p39 = tDn5 and isBear[4] and isBear[3] and isBear[2] and open[3] < open[4] and open[2] < open[3] and close[3] < close[4] and close[2] < close[3] and isBear[1] and upWick[1] >= body[1] * 0.5 and isBull and sepUpOpen and close > high[1]
+bool p40 = tDn4 and isBear[3] and isMaru[3] and isBear[2] and isMaru[2] and close[2] < close[3] and isBear[1] and sepDn_1v2o and high[1] > close[2] and high[1] < open[2] and isBear and high > high[1] and low < low[1] and open > high[1]
+bool p41 = tDn3 and isBear[2] and isLong[2] and isBear[1] and low[1] < low[2] and dnWick[1] >= body[1] * hamWick and bodyTop[1] <= bodyTop[2] and isBull and isSmall and close < close[1]
+bool p42 = tDn3 and isDoji[2] and isDoji[1] and isDoji and sepTri
+bool p43 = tUp3 and isBull and isBull[1] and isBull[2] and close > close[1] and close[1] > close[2] and body[1] < body[2] and body < body[1] and upWick >= body * 0.5 and upWick >= upWick[1] and isLong[2]
+bool p44 = tUp3 and isBull[2] and isLong[2] and isBull[1] and isLong[1] and close[1] > close[2] and body <= body[1] * 0.35 and open >= close[1] - atr * 0.15 and notDoji
+bool p45 = tUp3 and isBull[2] and isLong[2] and isBear[1] and sepUp_1v2 and isBear and open > open[1] and close < close[1] and close > close[2]
+
+// ── register every candidate ──────────────────────────────────────────────────────────
+f_check(0,  p01, hh1, ll1, 1)
+f_check(1,  p02, hh1, ll1, -1)
+f_check(2,  p03, hh1, ll1, 1)
+f_check(3,  p04, hh1, ll1, -1)
+f_check(4,  p05, hh1, ll1, 1)
+f_check(5,  p06, hh1, ll1, -1)
+f_check(6,  p07, hh1, ll1, 0)
+f_check(7,  p08, hh1, ll1, 1)
+f_check(8,  p09, hh1, ll1, -1)
+f_check(9,  p10, hh1, ll1, 0)
+f_check(10, p11, hh1, ll1, 0)
+f_check(11, p12b, hh1, ll1, 1)
+f_check(11, p12s, hh1, ll1, -1)
+f_check(12, p13, hh2, ll2, 1)
+f_check(13, p14, hh2, ll2, -1)
+f_check(14, p15, hh2, ll2, 1)
+f_check(15, p16, hh2, ll2, -1)
+f_check(16, p17, hh2, ll2, 1)
+f_check(17, p18, hh2, ll2, -1)
+f_check(18, p19, hh2, ll2, 1)
+f_check(19, p20, hh2, ll2, -1)
+f_check(20, p21, hh2, ll2, 1)
+f_check(21, p22, hh2, ll2, -1)
+f_check(22, p23, hh2, ll2, 1)
+f_check(23, p24, hh2, ll2, -1)
+f_check(24, p25b, hh2, ll2, 1)
+f_check(24, p25s, hh2, ll2, -1)
+f_check(25, p26, hh3, ll3, 1)
+f_check(26, p27, hh3, ll3, -1)
+f_check(27, p28, hh3, ll3, 1)
+f_check(28, p29, hh3, ll3, -1)
+f_check(29, p30, hh3, ll3, 1)
+f_check(30, p31, hh3, ll3, -1)
+f_check(31, p32, hh3, ll3, 1)
+f_check(32, p33, hh3, ll3, -1)
+f_check(33, p34, hh3, ll3, 1)
+f_check(34, p35, hh3, ll3, -1)
+f_check(35, p36, hh5, ll5, 1)
+f_check(36, p37, hh5, ll5, -1)
+f_check(37, p38, hh5, ll5, 1)
+f_check(38, p39, hh5, ll5, 1)
+f_check(39, p40, hh4, ll4, 1)
+f_check(40, p41, hh3, ll3, 1)
+f_check(41, p42, hh3, ll3, 1)
+f_check(42, p43, hh3, ll3, -1)
+f_check(43, p44, hh3, ll3, -1)
+f_check(44, p45, hh3, ll3, -1)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  RENDER — abbreviation on the chart, full card in the tooltip
+// ═══════════════════════════════════════════════════════════════════════════════════════
+int    shiftBars = confirmOn ? 1 : 0
+string tick      = " ✓"
+string cross     = " ✗"
+
+if barstate.isconfirmed and array.size(C_IDX) > 0
+    int shown = 0
+    for k = 0 to array.size(C_IDX) - 1
+        if shown < maxPerBar
+            int   idx = array.get(C_IDX, k)
+            float phi = array.get(C_HI, k)
+            float plo = array.get(C_LO, k)
+            int   dir = array.get(C_DIR, k)
+            int   len = array.get(P_LEN, idx)
+            bool  bull = dir > 0
+            bool  bear = dir < 0
+            bool  neut = dir == 0
+
+            // ── status from the confirmation candle ──
+            bool broke   = bull ? close > phi : bear ? close < plo : (close > phi or close < plo)
+            bool failed  = bull ? close < plo : bear ? close > phi : false
+            string status = not confirmOn ? "FORMING" : broke ? "CONFIRMED" : failed ? "FAILED" : "PENDING"
+
+            // ── the five cross-checks ──
+            bool cTrend = bull ? dnRaw[len] : bear ? upRaw[len] : (dnRaw[len] or upRaw[len])
+            bool cLoc   = bull ? atSupport : bear ? atResistance : (atSupport or atResistance)
+            bool cRsi   = bull ? (bullDiv or rsiVal < rsiOS) : bear ? (bearDiv or rsiVal > rsiOB) : (rsiVal < rsiOS or rsiVal > rsiOB)
+            bool cEma   = bull ? close > emaF : bear ? close < emaF : false
+            bool cVol   = volHot
+            int  score  = (cTrend ? 1 : 0) + (cLoc ? 1 : 0) + (cRsi ? 1 : 0) + (cEma ? 1 : 0) + (cVol ? 1 : 0)
+            string grade = score >= 4 ? "STRONG" : score == 3 ? "MODERATE" : score >= 1 ? "WEAK" : "NONE"
+
+            bool passStatus = showWhat == "Everything (incl. failed)" ? true : showWhat == "Confirmed only" ? (status == "CONFIRMED" or status == "FORMING") : status != "FAILED"
+
+            if passStatus and score >= minScore
+                string code = array.get(P_CODE, idx)
+                string name = array.get(P_NAME, idx)
+                string role = array.get(P_ROLE, idx)
+                int    prio = array.get(P_PRIO, idx)
+                int    rel  = array.get(P_REL, idx)
+                int    cat  = array.get(P_CAT, idx)
+                int    num  = array.get(P_NUM, idx)
+                string dirTx = bull ? "Bullish" : bear ? "Bearish" : "Neutral"
+                string prioTx = prio == 1 ? "Must" : prio == 2 ? "Important" : "Rare"
+                string catTx = cat == 1 ? "Single Candle" : cat == 2 ? "Double Candle" : "Triple & Multi"
+
+                string head = code + "\n" + dirTx + " " + name + "\nStatus: " + status + "\n\n"
+                string chk = "Pattern: Valid ✓\n" + "Trend: " + (bull ? "Downtrend" : bear ? "Uptrend" : "Trending") + (cTrend ? tick : cross) + "\n" + "Location: " + (bull ? "Support" : bear ? "Resistance" : "Key level") + (cLoc ? tick : cross) + "\n" + "RSI: " + (bull ? (bullDiv ? "Bullish divergence" : "Oversold") : bear ? (bearDiv ? "Bearish divergence" : "Overbought") : "Extreme") + " (" + str.tostring(rsiVal, "#.#") + ")" + (cRsi ? tick : cross) + "\n" + "EMA: " + (close > emaF ? "Above " : "Below ") + str.tostring(emaFast) + " EMA" + (emaReclaim ? " (just reclaimed)" : emaLoss ? " (just lost)" : "") + (cEma ? tick : cross) + "\n" + "Volume: " + (volOn ? "Above average" : "No volume data") + (cVol ? tick : cross) + "\n\n" + "Validation: " + grade + " (" + str.tostring(score) + "/5)\n"
+                string card = "──────────────────────────────\n" + "#" + str.tostring(num) + " · " + catTx + " · " + role + "\n" + "Structure: " + str.tostring(len) + "-candle · " + dirTx + " · " + prioTx + "\n" + "Ideal time frame: " + prettyTF(array.get(P_TF, idx)) + "   (chart: " + tfCode + ")\n" + "Reliability: " + str.tostring(rel) + "%\n" + "Pattern high: " + str.tostring(phi, format.mintick) + "   Pattern low: " + str.tostring(plo, format.mintick) + "\n" + "──────────────────────────────\n"
+                string tip = head + chk + card + array.get(P_INFO, idx)
+
+                color base = bull ? color.rgb(38, 166, 154) : bear ? color.rgb(239, 83, 80) : color.rgb(120, 123, 134)
+                int   trans = status == "CONFIRMED" ? 5 : status == "PENDING" or status == "FORMING" ? 45 : 70
+                float yBase = bull ? low[shiftBars] - atr * labelOff : bear ? high[shiftBars] + atr * labelOff : high[shiftBars] + atr * labelOff
+                float y = bull ? yBase - atr * 0.55 * shown : yBase + atr * 0.55 * shown
+                string txt = showGlyph ? code + (status == "CONFIRMED" ? "✓" : status == "FAILED" ? "✗" : "·") : code
+
+                label.new(bar_index - shiftBars, y, txt, xloc = xloc.bar_index, yloc = yloc.price, color = color.new(base, trans), style = bull ? label.style_label_up : label.style_label_down, textcolor = color.white, size = labelSize == "Tiny" ? size.tiny : labelSize == "Small" ? size.small : size.normal, tooltip = tip)
+
+                if alertsOn
+                    alert(code + " · " + name + " · " + status + " · " + grade + " (" + str.tostring(score) + "/5) · " + syminfo.ticker + " " + timeframe.period, alert.freq_once_per_bar_close)
+                shown := shown + 1
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════════════
+var table dash = table.new(dashPos == "Top Right" ? position.top_right : dashPos == "Top Left" ? position.top_left : dashPos == "Bottom Right" ? position.bottom_right : position.bottom_left, 2, 8, border_width = 1)
+
+if showDash and barstate.islast
+    int active = 0
+    if array.size(P_EN) > 0
+        for i = 0 to array.size(P_EN) - 1
+            if array.get(P_EN, i)
+                active := active + 1
+    string regime = upRaw ? "Uptrend" : dnRaw ? "Downtrend" : "Range / mixed"
+    table.cell(dash, 0, 0, "CS45 ENGINE", text_color = color.white, bgcolor = color.new(color.blue, 20), text_size = size.small)
+    table.cell(dash, 1, 0, tfCode, text_color = color.white, bgcolor = color.new(color.blue, 20), text_size = size.small)
+    table.cell(dash, 0, 1, "Patterns armed", text_size = size.tiny)
+    table.cell(dash, 1, 1, str.tostring(active) + " / " + str.tostring(array.size(P_CODE)), text_size = size.tiny)
+    table.cell(dash, 0, 2, "Trend", text_size = size.tiny)
+    table.cell(dash, 1, 2, regime, text_size = size.tiny, text_color = upRaw ? color.teal : dnRaw ? color.red : color.gray)
+    table.cell(dash, 0, 3, "RSI(" + str.tostring(rsiLen) + ")", text_size = size.tiny)
+    table.cell(dash, 1, 3, str.tostring(rsiVal, "#.#") + (bullDiv ? " ▲div" : bearDiv ? " ▼div" : ""), text_size = size.tiny)
+    table.cell(dash, 0, 4, "Price vs " + str.tostring(emaFast) + " EMA", text_size = size.tiny)
+    table.cell(dash, 1, 4, close > emaF ? "Above" : "Below", text_size = size.tiny)
+    table.cell(dash, 0, 5, "Volume", text_size = size.tiny)
+    table.cell(dash, 1, 5, not volOn ? "n/a" : volHot ? "Above avg" : "Normal", text_size = size.tiny)
+    table.cell(dash, 0, 6, "Location", text_size = size.tiny)
+    table.cell(dash, 1, 6, atSupport ? "At support" : atResistance ? "At resistance" : "Mid-range", text_size = size.tiny)
+    table.cell(dash, 0, 7, "Filter", text_size = size.tiny)
+    table.cell(dash, 1, 7, fDir + (tfMode == "Strict — ideal time frames only" ? " · TF strict" : tfMode == "Ideal ± 1 step" ? " · TF ±1" : " · TF off"), text_size = size.tiny)
