@@ -98,6 +98,16 @@ p27 = input.bool(true, "27 Evening Star (ES)",           group = grpP3)
 p28 = input.bool(true, "28 Morning Doji Star (MDS)",     group = grpP3)
 p29 = input.bool(true, "29 Evening Doji Star (EDS)",     group = grpP3)
 p30 = input.bool(true, "30 Three White Soldiers (TWS)",  group = grpP3)
+p31 = input.bool(true, "31 Three Black Crows (TBC)",       group = grpP3)
+p32 = input.bool(true, "32 Three Inside Up (TIU)",         group = grpP3)
+p33 = input.bool(true, "33 Three Inside Down (TID)",       group = grpP3)
+p34 = input.bool(true, "34 Three Outside Up (TOU)",        group = grpP3)
+p35 = input.bool(true, "35 Three Outside Down (TOD)",      group = grpP3)
+p36 = input.bool(true, "36 Rising Three Methods (RTM)",    group = grpP3)
+p37 = input.bool(true, "37 Falling Three Methods (FTM)",   group = grpP3)
+p38 = input.bool(true, "38 Breakaway Bullish (BWY)",       group = grpP3)
+p39 = input.bool(true, "39 Ladder Bottom (LDB)",           group = grpP3)
+p40 = input.bool(true, "40 Concealing Baby Swallow (CBS)", group = grpP3)
 
 // ════════════════════════════ ANATOMY ENGINE ═══════════════════════════════
 atrV    = ta.atr(14)
@@ -285,6 +295,21 @@ starShapeBe  = bullC[2] and longBody[2] and body[1] <= atrV * 0.35 and math.min(
 openInPrevBody(int off) =>
     open[off] >= math.min(open[off + 1], close[off + 1]) and open[off] <= math.max(open[off + 1], close[off + 1])
 twsShape     = bullC and bullC[1] and bullC[2] and close > close[1] and close[1] > close[2] and body >= atrV * 0.5 and body[1] >= atrV * 0.5 and body[2] >= atrV * 0.5 and openInPrevBody(0) and openInPrevBody(1) and upW <= body * 0.3 and upW[1] <= body[1] * 0.3 and upW[2] <= body[2] * 0.3
+tbcShape     = bearC and bearC[1] and bearC[2] and close < close[1] and close[1] < close[2] and body >= atrV * 0.5 and body[1] >= atrV * 0.5 and body[2] >= atrV * 0.5 and openInPrevBody(0) and openInPrevBody(1) and loW <= body * 0.3 and loW[1] <= body[1] * 0.3 and loW[2] <= body[2] * 0.3
+
+// Staged patterns: harami / engulfing (one bar back) + confirmation candle now
+tiuShape     = bullHarShape[1] and bullC and close > high[2]
+tidShape     = bearHarShape[1] and bearC and close < low[2]
+touShape     = becShape[1] and bullC and close > close[1]
+todShape     = breShape[1] and bearC and close < close[1]
+
+// Five- and four-candle structures
+pauseInC1    = high[1] <= high[4] and low[1] >= low[4] and high[2] <= high[4] and low[2] >= low[4] and high[3] <= high[4] and low[3] >= low[4] and body[1] < body[4] and body[2] < body[4] and body[3] < body[4]
+rtmShape     = bullC[4] and longBody[4] and pauseInC1 and bullC and longBody and close > high[4]
+ftmShape     = bearC[4] and longBody[4] and pauseInC1 and bearC and longBody and close < low[4]
+bwyShape     = bearC[4] and longBody[4] and bodyGapDown[3] and body[3] <= body[4] * 0.5 and body[2] <= body[4] * 0.5 and body[1] <= body[4] * 0.5 and bullC and longBody and close > close[4]
+ldbShape     = bearC[4] and bearC[3] and bearC[2] and high[3] < high[4] and high[2] < high[3] and low[3] < low[4] and low[2] < low[3] and bearC[1] and low[1] < low[2] and upW[1] >= body[1] * 0.5 and bullC and open > open[1] and body >= atrV * 0.5
+cbsShape     = bearC[3] and longBody[3] and bearC[2] and longBody[2] and close[2] < close[3] and bearC[1] and bodyGapDown[1] and high[1] > close[2] and bearC and high >= high[1] and low <= low[1] and body > body[1]
 
 // Neutral-pattern trend context text
 ctxTxt = "Trend: " + (upTrend[1] ? "Uptrend" : downTrend[1] ? "Downtrend" : "Sideways") + " (context)"
@@ -380,6 +405,36 @@ if barstate.isconfirmed
     // 30 THREE WHITE SOLDIERS — bullish trend ignition · Must · H4 D1
     if twsShape and not upTrend[3]
         fire(p30, 3, "M", "BR", 1, "240,D", "TWS", "Three White Soldiers", downTrend[3] ? "Trend: End of downtrend ✓" : "Trend: Consolidation breakout ✓", "Three consecutive long bullish candles, each opening inside the previous body and closing near its high with rising closes — buyer commitment across three sessions; the start of a new uptrend.", "SL: below candle 1 low (swing) or the last candle's midpoint  |  TP: 1x the pattern height, or trail following higher lows", "★ High (75%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 31 THREE BLACK CROWS — bearish trend ignition · Must · H4 D1
+    if tbcShape and not downTrend[3]
+        fire(p31, 3, "M", "SR", -1, "240,D", "TBC", "Three Black Crows", upTrend[3] ? "Trend: End of uptrend ✓" : "Trend: Consolidation breakdown ✓", "Three consecutive long bearish candles, each opening inside the previous body and closing near its low with falling closes — the perfect mirror of three white soldiers; an early downtrend signal.", "SL: above candle 1 high or the last candle's midpoint  |  TP: 1x the pattern height; trail following lower highs", "★ High (75%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 32 THREE INSIDE UP — harami + confirmation · Important · H4 D1
+    if tiuShape and downTrend[3]
+        fire(p32, 3, "I", "BR", 1, "240,D", "TIU", "Three Inside Up", "Trend: Downtrend ✓", "A bullish harami (big red + small green inside) validated by a third candle closing above the first candle's high — a staged reversal: pause, then confirmation. Seller doubt turns into verified buyer victory.", "SL: below the pattern low (candle 1)  |  TP: nearest resistance; candle 1 body width as the minimum target", "★ Good (71%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 33 THREE INSIDE DOWN — harami + confirmation · Important · H4 D1
+    if tidShape and upTrend[3]
+        fire(p33, 3, "I", "SR", -1, "240,D", "TID", "Three Inside Down", "Trend: Uptrend ✓", "A bearish harami (big green + small red inside) validated by a third candle closing below the first candle's low — buyer pause turns into verified seller victory.", "SL: above the pattern high (candle 1)  |  TP: nearest support; project candle 1's height from the breakdown point", "★ Good (71%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 34 THREE OUTSIDE UP — engulfing + confirmation · Important · H4 D1
+    if touShape and downTrend[3]
+        fire(p34, 3, "I", "BR", 1, "240,D", "TOU", "Three Outside Up", "Trend: Downtrend ✓", "A bullish engulfing immediately strengthened by a third bullish candle making a new higher close — buyers not only take over but keep attacking; two strong signals combined.", "SL: below candle 2 (engulfing) low  |  TP: nearest resistance then swing high; three-phase momentum often continues", "★ Good (73%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 35 THREE OUTSIDE DOWN — engulfing + confirmation · Important · H4 D1
+    if todShape and upTrend[3]
+        fire(p35, 3, "I", "SR", -1, "240,D", "TOD", "Three Outside Down", "Trend: Uptrend ✓", "A bearish engulfing strengthened by a third red candle making a new lower close — sellers take over and keep pressing without pause; the perfect mirror of three outside up.", "SL: above candle 2 (engulfing) high  |  TP: nearest support then swing low", "★ Good (73%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 36 RISING THREE METHODS — bullish continuation · Important · H4 D1 (5-candle)
+    if rtmShape and upTrend[4]
+        fire(p36, 3, "I", "CT", 1, "240,D", "RTM", "Rising Three Methods", "Trend: Healthy uptrend (continuation) ✓", "A long bullish candle, three small candles resting inside its range, then a new long bullish candle closing above the initial high — a healthy consolidation, not a reversal; buyers resume dominance.", "SL: below the small-candle group low  |  TP: project candle 1's height from the breakout; follow higher lows", "★ Good (70%)", "H4 · D1", math.max(high, math.max(math.max(high[1], high[2]), math.max(high[3], high[4]))), math.min(low, math.min(math.min(low[1], low[2]), math.min(low[3], low[4]))))
+    // 37 FALLING THREE METHODS — bearish continuation · Important · H4 D1 (5-candle)
+    if ftmShape and downTrend[4]
+        fire(p37, 3, "I", "CT", -1, "240,D", "FTM", "Falling Three Methods", "Trend: Healthy downtrend (continuation) ✓", "A long bearish candle, three small candles held inside its range, then a new long bearish candle closing below the initial low — a rebound that totally fails; sellers resume pressure.", "SL: above the small-candle group high  |  TP: project candle 1's height; trail following lower highs", "★ Good (70%)", "H4 · D1", math.max(high, math.max(math.max(high[1], high[2]), math.max(high[3], high[4]))), math.min(low, math.min(math.min(low[1], low[2]), math.min(low[3], low[4]))))
+    // 38 BREAKAWAY (BULLISH) — gap reclaim reversal · Rare · D1 (5-candle)
+    if bwyShape and downTrend[5]
+        fire(p38, 3, "R", "BR", 1, "D", "BWY", "Breakaway (Bullish)", "Trend: End of downtrend ✓", "A long red candle, a gap down, small candles failing to continue the decline, then a long green candle closing the gap and entering the first candle's body — fleeing sellers finally caught; euphoria turns into short-covering panic.", "SL: below the small-candle group low  |  TP: candle 1's close as the initial target, then the next resistance", "★ Good (68%)", "D1 (market gap)", high, math.min(low, math.min(math.min(low[1], low[2]), low[3])))
+    // 39 LADDER BOTTOM — staged bottom · Rare · D1 (5-candle)
+    if ldbShape and downTrend[5]
+        fire(p39, 3, "R", "BR", 1, "D", "LDB", "Ladder Bottom", "Trend: Final phase of downtrend ✓", "Three red candles stepping down, a fourth red with an upper shadow (a failed rebound attempt showing seller fatigue), then a strong green candle opening above the fourth candle's open — a bottom forming in stages.", "SL: below the pattern low (candle 4)  |  TP: nearest resistance; project the ladder height as the extended target", "★ Good (69%)", "D1", high, math.min(low, low[1]))
+    // 40 CONCEALING BABY SWALLOW — panic climax · Rare · D1 (4-candle)
+    if cbsShape and downTrend[4]
+        fire(p40, 3, "R", "BR", 1, "D", "CBS", "Concealing Baby Swallow", "Trend: Deep downtrend ending ✓", "Two long declining reds, a third red gapping down whose high re-enters candle 2's body, then a fourth big red fully engulfing the third — a panic gap instantly swallowed; the last sellers are trapped while buyers quietly absorb supply.", "SL: below candle 4 low  |  TP: nearest resistance; often starts sharp short-squeeze rebounds", "★ Good (67%)", "D1", high, low)
 
 // ═══════════════ STATE UPDATES: CONFIRM / FAIL / EXPIRE ════════════════════
 if barstate.isconfirmed and insts.size() > 0

@@ -56,9 +56,9 @@ Reliability: ★ High (78%) · Ideal TF: H1 · H4 · D1
 
 **Double candle (13–25):** 13 Bullish Engulfing (BEC), 14 Bearish Engulfing (BRE), 15 Bullish Harami (BUH), 16 Bearish Harami (BEH), 17 Harami Cross (HC), 18 Piercing Line (PL), 19 Dark Cloud Cover (DCC), 20 Tweezer Bottom (TWB), 21 Tweezer Top (TWT), 22 Matching Low (ML), 23 Matching High (MH), 24 Stick Sandwich (SSW), 25 Kicking Pattern (KCK).
 
-**Triple & multi candle (26–30):** 26 Morning Star (MS), 27 Evening Star (ES), 28 Morning Doji Star (MDS), 29 Evening Doji Star (EDS), 30 Three White Soldiers (TWS).
+**Triple & multi candle (26–40):** 26 Morning Star (MS), 27 Evening Star (ES), 28 Morning Doji Star (MDS), 29 Evening Doji Star (EDS), 30 Three White Soldiers (TWS), 31 Three Black Crows (TBC), 32 Three Inside Up (TIU), 33 Three Inside Down (TID), 34 Three Outside Up (TOU), 35 Three Outside Down (TOD), 36 Rising Three Methods (RTM), 37 Falling Three Methods (FTM), 38 Breakaway Bullish (BWY), 39 Ladder Bottom (LDB), 40 Concealing Baby Swallow (CBS).
 
-Remaining: triple & multi-candle patterns 31–45, pending spec data. New patterns plug into the same engines: each one is a shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
+Remaining: patterns 41–45, pending spec data. New patterns plug into the same engines: each one is a shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
 
 ## Disclaimer
 
