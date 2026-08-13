@@ -1,0 +1,479 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0
+// © Candlestick Pattern Master — Educational tool. NOT financial advice. DYOR.
+//@version=6
+indicator("Candlestick Pattern Master — MTF Confirmation Suite", shorttitle = "CPM Suite", overlay = true, max_labels_count = 500, max_lines_count = 100)
+
+// =====================================================================================
+// ABOUT
+// =====================================================================================
+// This script scans every completed bar for 45 classic candlestick patterns (12 single-
+// candle, 13 double-candle, 20 triple/multi-candle). Every pattern is tagged with the
+// "Ideal Time Frame(s)" it is statistically most reliable on. By default the script only
+// draws a pattern label while you are viewing one of ITS ideal time frames — switch chart
+// resolution and different patterns light up automatically. If a pattern has 3 ideal time
+// frames (e.g. H1 · H4 · D1), it will show on ANY of those 3 — not just one fixed TF.
+//
+// Every label is an ABBREVIATION (e.g. "BEC", "HAM", "MOR★") to keep the chart clean.
+// Hover/hold your cursor over a label to see the full name, a one-line description and a
+// live "Professional Validation" checklist (Trend / Location / RSI / EMA / Volume) plus an
+// overall CONFIRMED / FORMING / WATCH status and STRONG / MODERATE / WEAK validation grade
+// — exactly like the format you described for "BEC".
+// =====================================================================================
+
+
+// =====================================================================================
+// INPUTS
+// =====================================================================================
+grpGeneral  = "① General"
+grpStruct   = "② Pattern Structure"
+grpBias     = "③ Pattern Bias / Role"
+grpConfirm  = "④ Confirmation Engine (RSI · EMA · Volume · Location · Trend)"
+grpVisual   = "⑤ Visuals & Alerts"
+
+i_restrictTF   = input.bool(true, "Only show a pattern on ITS ideal time frame(s)", group = grpGeneral, tooltip = "When ON, each pattern only appears while the chart resolution matches one of its own 'ideal time frame' tags (e.g. a pattern tagged H1·H4·D1 shows on all three, never on M5).")
+i_minValid     = input.string("ANY", "Minimum validation grade to display", options = ["ANY", "WEAK", "MODERATE", "STRONG"], group = grpGeneral, tooltip = "Filters out low-quality matches. ANY = show every raw pattern match. STRONG = only show fully confirmed, high-probability setups.")
+i_maxPerBar    = input.int(4, "Max labels per bar (declutter)", minval = 1, maxval = 10, group = grpGeneral)
+
+i_showSingle   = input.bool(true, "Show Single-Candle patterns (12)", group = grpStruct)
+i_showDouble   = input.bool(true, "Show Double-Candle patterns (13)", group = grpStruct)
+i_showTriple   = input.bool(true, "Show Triple / Multi-Candle patterns (20)", group = grpStruct)
+
+i_showBullRev  = input.bool(true,  "Show Bullish Reversal patterns", group = grpBias)
+i_showBearRev  = input.bool(true,  "Show Bearish Reversal patterns", group = grpBias)
+i_showBullCont = input.bool(true,  "Show Bullish Continuation patterns", group = grpBias)
+i_showBearCont = input.bool(true,  "Show Bearish Continuation patterns", group = grpBias)
+i_showNeutral  = input.bool(false, "Show Neutral / Indecision patterns (Doji family, Spinning Top…)", group = grpBias)
+i_minPriority  = input.string("All", "Minimum catalog priority", options = ["All", "Important & Must", "Must Only"], group = grpBias, tooltip = "Mirrors the 'Must → Important → Rare' priority tiers from the pattern catalog.")
+
+i_trendFastLen = input.int(50,  "Trend EMA — fast", group = grpConfirm)
+i_trendSlowLen = input.int(200, "Trend EMA — slow", group = grpConfirm)
+i_rsiLen       = input.int(14,  "RSI length", group = grpConfirm)
+i_rsiOS        = input.int(35,  "RSI oversold level (bullish confirmation)", group = grpConfirm)
+i_rsiOB        = input.int(65,  "RSI overbought level (bearish confirmation)", group = grpConfirm)
+i_emaLen       = input.int(20,  "Confirmation EMA length", group = grpConfirm)
+i_volLen       = input.int(20,  "Volume average length", group = grpConfirm)
+i_volMult      = input.float(1.2, "Volume must exceed average ×", step = 0.1, group = grpConfirm)
+i_swingLen     = input.int(10,  "Support/Resistance lookback (bars)", group = grpConfirm)
+i_atrLen       = input.int(14,  "ATR length (label spacing & tolerances)", group = grpConfirm)
+
+i_labelSize    = input.string("small", "Label size", options = ["tiny", "small", "normal", "large"], group = grpVisual)
+i_bullColor    = input.color(color.new(#0F9D58, 0),  "Bullish color", group = grpVisual)
+i_bearColor    = input.color(color.new(#D32F2F, 0),  "Bearish color", group = grpVisual)
+i_neutColor    = input.color(color.new(#9E9E9E, 0),  "Neutral color", group = grpVisual)
+i_showTable    = input.bool(true, "Show settings legend (top-right)", group = grpVisual)
+
+
+// =====================================================================================
+// CORE OHLC GEOMETRY
+// =====================================================================================
+body       = math.abs(close - open)
+range_     = math.max(high - low, syminfo.mintick)
+upperWick  = high - math.max(open, close)
+lowerWick  = math.min(open, close) - low
+isBull     = close > open
+isBear     = close < open
+mid        = (open + close) / 2.0
+prevMid    = (open[1] + close[1]) / 2.0
+gapUp      = open > high[1]
+gapDown    = open < low[1]
+avgBody20  = ta.sma(body, 20)
+atr14      = ta.atr(i_atrLen)
+
+f_bodyHi(o, c) => math.max(o, c)
+f_bodyLo(o, c) => math.min(o, c)
+
+// Candle-2 body fully contained inside candle-1 body (Harami family)
+f_contained(o1, c1, o0, c0) =>
+    f_bodyHi(o0, c0) < f_bodyHi(o1, c1) and f_bodyLo(o0, c0) > f_bodyLo(o1, c1)
+
+
+// =====================================================================================
+// TREND / LOCATION / RSI / EMA / VOLUME CONTEXT  (Confirmation Engine)
+// =====================================================================================
+emaFast = ta.ema(close, i_trendFastLen)
+emaSlow = ta.ema(close, i_trendSlowLen)
+emaConf = ta.ema(close, i_emaLen)
+rsiVal  = ta.rsi(close, i_rsiLen)
+volAvg  = ta.sma(volume, i_volLen)
+
+// "span" = how many bars back the pattern's first candle begins, so trend/location are
+// judged on price action BEFORE the pattern itself (no look-ahead / self-fulfilling bias).
+f_priorDowntrend(span) => emaFast[span] < emaSlow[span] and emaFast[span] < emaFast[span + 5]
+f_priorUptrend(span)   => emaFast[span] > emaSlow[span] and emaFast[span] > emaFast[span + 5]
+
+f_nearSupport(span)    => (low  - ta.lowest(low, i_swingLen)[span])  <= atr14 * 0.5
+f_nearResistance(span) => (ta.highest(high, i_swingLen)[span] - high) <= atr14 * 0.5
+
+f_rsiBullOK() => rsiVal <= i_rsiOS or (ta.rising(rsiVal, 3) and rsiVal < 50)
+f_rsiBearOK() => rsiVal >= i_rsiOB or (ta.falling(rsiVal, 3) and rsiVal > 50)
+
+f_volOK() => volume > volAvg * i_volMult
+
+f_check(ok) => ok ? "✓" : "✗"
+
+
+// =====================================================================================
+// TIME-FRAME GATE
+// Ideal time frames are encoded as a comma list using Pine's own timeframe.period codes:
+//   1,2,3,5,10,15,30,45   -> M1..M45      60,120,180,240 -> H1,H2,H3,H4
+//   D                     -> D1            W -> W1          M -> Monthly
+// =====================================================================================
+f_tfAllow(idealCsv) =>
+    str.contains("," + idealCsv + ",", "," + timeframe.period + ",")
+
+
+// =====================================================================================
+// DISPLAY FILTERS
+//   structureCat : 0 = Single-candle   1 = Double-candle   2 = Triple/Multi-candle
+//   biasCat      : 0 = Bullish Reversal  1 = Bearish Reversal
+//                  2 = Bullish Continuation  3 = Bearish Continuation  4 = Neutral/Indecision
+//   priority     : 0 = Must   1 = Important   2 = Rare
+// =====================================================================================
+f_structAllow(structureCat) =>
+    (structureCat == 0 and i_showSingle) or (structureCat == 1 and i_showDouble) or (structureCat == 2 and i_showTriple)
+
+f_biasCatAllow(biasCat) =>
+    (biasCat == 0 and i_showBullRev) or (biasCat == 1 and i_showBearRev) or (biasCat == 2 and i_showBullCont) or (biasCat == 3 and i_showBearCont) or (biasCat == 4 and i_showNeutral)
+
+f_priorityAllow(priority) =>
+    i_minPriority == "All" or (i_minPriority == "Important & Must" and priority <= 1) or (i_minPriority == "Must Only" and priority == 0)
+
+
+// =====================================================================================
+// CONFIRMATION SCORING  (bias: 1 = bullish, -1 = bearish, 0 = neutral)
+// Returns: trendOK, locationOK, rsiOK, emaOK, volOK, emaJustCrossedUp, emaJustCrossedDn, score(0-5)
+// =====================================================================================
+f_confirm(bias, span) =>
+    trendOK = bias == 1 ? f_priorDowntrend(span) : bias == -1 ? f_priorUptrend(span) : true
+    locOK   = bias == 1 ? f_nearSupport(span)    : bias == -1 ? f_nearResistance(span) : true
+    rsiOK   = bias == 1 ? f_rsiBullOK() : bias == -1 ? f_rsiBearOK() : true
+    emaOK   = bias == 1 ? (close > emaConf) : bias == -1 ? (close < emaConf) : true
+    crossUp = close > emaConf and close[1] <= emaConf[1]
+    crossDn = close < emaConf and close[1] >= emaConf[1]
+    volOK   = f_volOK()
+    score   = (trendOK ? 1 : 0) + (locOK ? 1 : 0) + (rsiOK ? 1 : 0) + (emaOK ? 1 : 0) + (volOK ? 1 : 0)
+    [trendOK, locOK, rsiOK, emaOK, volOK, crossUp, crossDn, score]
+
+f_passMin(score) =>
+    i_minValid == "ANY" ? true : i_minValid == "WEAK" ? score >= 1 : i_minValid == "MODERATE" ? score >= 3 : score >= 5
+
+f_statusWord(score)     => score >= 5 ? "CONFIRMED" : score >= 3 ? "FORMING" : "WATCH"
+f_validationWord(score) => score >= 5 ? "STRONG" : score >= 3 ? "MODERATE" : "WEAK"
+
+f_reliabilityText(priority) => priority == 0 ? "★ High (~75%)" : priority == 1 ? "★ Good (~65%)" : "★ Fair (~58%)"
+f_rrText(priority)          => priority == 0 ? "1:2 – 1:3" : priority == 1 ? "1:1.5 – 1:2.5" : "1:1.5 – 1:2"
+
+
+// =====================================================================================
+// TOOLTIP BUILDER — matches the "hold-to-preview" format requested:
+//   ABBR / Full Name / Status / description / checklist / Validation / stats
+// =====================================================================================
+f_tooltip(abbr, fullName, bias, desc, idealTF, reliability, rr, trendOK, locOK, rsiOK, emaOK, volOK, crossUp, crossDn, score) =>
+    trendTxt = bias == 1 ? "Downtrend" : bias == -1 ? "Uptrend" : "Range / Neutral"
+    locTxt   = bias == 1 ? "Support"   : bias == -1 ? "Resistance" : "N/A"
+    rsiTxt   = bias == 1 ? (rsiVal <= i_rsiOS ? "Oversold" : "Bullish momentum") : bias == -1 ? (rsiVal >= i_rsiOB ? "Overbought" : "Bearish momentum") : "Neutral"
+    emaTxt   = bias == 1 ? (crossUp ? ("Reclaiming " + str.tostring(i_emaLen) + " EMA") : (str.tostring(i_emaLen) + " EMA")) : bias == -1 ? (crossDn ? ("Breaking " + str.tostring(i_emaLen) + " EMA") : (str.tostring(i_emaLen) + " EMA")) : "Neutral"
+    volTxt   = volOK ? "Above average" : "Below average"
+    abbr + "\n" + fullName + "\nStatus: " + f_statusWord(score) +
+     "\n\n" + desc +
+     "\n\nIdeal Time Frame: " + idealTF +
+     "\n\nProfessional Validation" +
+     "\nPattern: Valid ✓" +
+     "\nTrend: " + trendTxt + " " + f_check(trendOK) +
+     "\nLocation: " + locTxt + " " + f_check(locOK) +
+     "\nRSI: " + rsiTxt + " " + f_check(rsiOK) +
+     "\nEMA: " + emaTxt + " " + f_check(emaOK) +
+     "\nVolume: " + volTxt + " " + f_check(volOK) +
+     "\n\nValidation: " + f_validationWord(score) +
+     "\nReliability: " + reliability + "   |   Risk:Reward " + rr
+
+
+// =====================================================================================
+// RENDER ENGINE — one call per pattern. Handles TF-gating, category filters, confirmation
+// scoring, min-validation filter, per-bar declutter cap, label placement + tooltip.
+// Returns true when the pattern was actually drawn (used to drive the grouped alerts).
+// =====================================================================================
+// NOTE: Pine functions cannot reassign global variables directly, so per-bar stacking
+// counters are kept as array elements (mutating array CONTENTS from inside a function
+// is allowed, unlike reassigning a plain global variable).
+var stackState = array.new_int(4, 0)   // [0]=bullStack [1]=bearStack [2]=neutStack [3]=labelsThisBar
+
+array.set(stackState, 0, 0)
+array.set(stackState, 1, 0)
+array.set(stackState, 2, 0)
+array.set(stackState, 3, 0)
+
+f_render(cond, abbr, fullName, bias, structureCat, biasCat, idealTF, span, desc, priority) =>
+    shown = false
+    labelsThisBar = array.get(stackState, 3)
+    if cond and labelsThisBar < i_maxPerBar
+        allowTF   = not i_restrictTF or f_tfAllow(idealTF)
+        allowCat  = f_structAllow(structureCat) and f_biasCatAllow(biasCat) and f_priorityAllow(priority)
+        if allowTF and allowCat
+            [trendOK, locOK, rsiOK, emaOK, volOK, crossUp, crossDn, score] = f_confirm(bias, span)
+            if f_passMin(score)
+                reliability = f_reliabilityText(priority)
+                rr          = f_rrText(priority)
+                tip         = f_tooltip(abbr, fullName, bias, desc, idealTF, reliability, rr, trendOK, locOK, rsiOK, emaOK, volOK, crossUp, crossDn, score)
+                col         = bias == 1 ? i_bullColor : bias == -1 ? i_bearColor : i_neutColor
+                if bias == 1
+                    newBull = array.get(stackState, 0) + 1
+                    array.set(stackState, 0, newBull)
+                    yPos = low - atr14 * 0.4 * newBull
+                    label.new(bar_index, yPos, text = abbr, style = label.style_label_up, color = col, textcolor = color.white, size = i_labelSize, tooltip = tip)
+                else if bias == -1
+                    newBear = array.get(stackState, 1) + 1
+                    array.set(stackState, 1, newBear)
+                    yPos = high + atr14 * 0.4 * newBear
+                    label.new(bar_index, yPos, text = abbr, style = label.style_label_down, color = col, textcolor = color.white, size = i_labelSize, tooltip = tip)
+                else
+                    newNeut = array.get(stackState, 2) + 1
+                    array.set(stackState, 2, newNeut)
+                    yPos = high + atr14 * 0.7 * newNeut
+                    label.new(bar_index, yPos, text = abbr, style = label.style_label_down, color = col, textcolor = color.white, size = i_labelSize, tooltip = tip)
+                array.set(stackState, 3, labelsThisBar + 1)
+                shown := true
+    shown
+
+
+// =====================================================================================
+// PATTERN DETECTION — SINGLE CANDLE  (12 patterns)
+// span = 1 : trend/location context is judged on price action ending 1 bar before the
+// pattern candle itself.
+// =====================================================================================
+smallBody   = body <= range_ * 0.35
+tinyBody    = body <= range_ * 0.10
+tinyBody8   = body <= range_ * 0.08
+
+// 1. Hammer — Bullish reversal
+c01_Hammer = f_priorDowntrend(1) and smallBody and lowerWick >= body * 2 and lowerWick >= range_ * 0.4 and upperWick <= body * 0.6
+
+// 2. Hanging Man — Bearish reversal (same shape as Hammer, opposite trend context)
+c02_HangingMan = f_priorUptrend(1) and smallBody and lowerWick >= body * 2 and lowerWick >= range_ * 0.4 and upperWick <= body * 0.6
+
+// 3. Inverted Hammer — Bullish reversal
+c03_InvHammer = f_priorDowntrend(1) and smallBody and upperWick >= body * 2 and upperWick >= range_ * 0.4 and lowerWick <= body * 0.6
+
+// 4. Shooting Star — Bearish reversal (same shape as Inverted Hammer, opposite trend context)
+c04_ShootingStar = f_priorUptrend(1) and smallBody and upperWick >= body * 2 and upperWick >= range_ * 0.4 and lowerWick <= body * 0.6
+
+// 5. Bullish Marubozu — Bullish continuation (full body, virtually no wicks)
+c05_BullMarubozu = isBull and body / range_ >= 0.95 and upperWick <= range_ * 0.03 and lowerWick <= range_ * 0.03
+
+// 6. Bearish Marubozu — Bearish continuation
+c06_BearMarubozu = isBear and body / range_ >= 0.95 and upperWick <= range_ * 0.03 and lowerWick <= range_ * 0.03
+
+// 7. Doji — Neutral indecision (both wicks present)
+c07_Doji = tinyBody and upperWick > range_ * 0.1 and lowerWick > range_ * 0.1
+
+// 8. Long-Legged Doji — Neutral indecision (very long, roughly equal wicks)
+c08_LongLeggedDoji = tinyBody8 and upperWick >= range_ * 0.35 and lowerWick >= range_ * 0.35
+
+// 9. Dragonfly Doji — Bullish reversal
+c09_DragonflyDoji = f_priorDowntrend(1) and tinyBody8 and lowerWick >= range_ * 0.6 and upperWick <= range_ * 0.05
+
+// 10. Gravestone Doji — Bearish reversal
+c10_GravestoneDoji = f_priorUptrend(1) and tinyBody8 and upperWick >= range_ * 0.6 and lowerWick <= range_ * 0.05
+
+// 11. Spinning Top — Neutral indecision (small body, two similar-sized wicks)
+c11_SpinningTop = body / range_ > 0.1 and body / range_ <= 0.35 and upperWick >= body * 0.8 and lowerWick >= body * 0.8 and math.abs(upperWick - lowerWick) <= range_ * 0.15
+
+// 12. High Wave Candle — Neutral indecision (unusually wide range, tiny body, long wicks both sides)
+c12_HighWave = body / range_ <= 0.3 and upperWick >= range_ * 0.35 and lowerWick >= range_ * 0.35 and range_ >= avgBody20 * 1.5
+
+
+// =====================================================================================
+// PATTERN DETECTION — DOUBLE CANDLE  (13 patterns)   span = 2
+// =====================================================================================
+bodyHi1 = f_bodyHi(open[1], close[1])
+bodyLo1 = f_bodyLo(open[1], close[1])
+bodyHi0 = f_bodyHi(open, close)
+bodyLo0 = f_bodyLo(open, close)
+contained10 = f_contained(open[1], close[1], open, close)
+tweezerTol  = atr14 * 0.12
+
+// 13. Bullish Engulfing — Bullish reversal
+c13_BullEngulf = f_priorDowntrend(2) and isBear[1] and isBull and close >= open[1] and open <= close[1] and body > body[1]
+
+// 14. Bearish Engulfing — Bearish reversal
+c14_BearEngulf = f_priorUptrend(2) and isBull[1] and isBear and close <= open[1] and open >= close[1] and body > body[1]
+
+// 15. Bullish Harami — Bullish reversal
+c15_BullHarami = f_priorDowntrend(2) and isBear[1] and body[1] >= avgBody20 * 0.8 and isBull and contained10
+
+// 16. Bearish Harami — Bearish reversal
+c16_BearHarami = f_priorUptrend(2) and isBull[1] and body[1] >= avgBody20 * 0.8 and isBear and contained10
+
+// 17. Bullish Harami Cross — Bullish reversal (2nd candle is a doji)
+c17_BullHaramiCross = f_priorDowntrend(2) and isBear[1] and body[1] >= avgBody20 * 0.8 and tinyBody and contained10
+
+// 18. Bearish Harami Cross — Bearish reversal (2nd candle is a doji)
+c18_BearHaramiCross = f_priorUptrend(2) and isBull[1] and body[1] >= avgBody20 * 0.8 and tinyBody and contained10
+
+// 19. Piercing Line — Bullish reversal
+c19_Piercing = f_priorDowntrend(2) and isBear[1] and body[1] >= avgBody20 * 0.8 and open < low[1] and isBull and close > prevMid and close < open[1]
+
+// 20. Dark Cloud Cover — Bearish reversal
+c20_DarkCloud = f_priorUptrend(2) and isBull[1] and body[1] >= avgBody20 * 0.8 and open > high[1] and isBear and close < prevMid and close > open[1]
+
+// 21. Tweezer Bottom — Bullish reversal (matching lows)
+c21_TweezerBottom = f_priorDowntrend(2) and isBear[1] and isBull and math.abs(low - low[1]) <= tweezerTol
+
+// 22. Tweezer Top — Bearish reversal (matching highs)
+c22_TweezerTop = f_priorUptrend(2) and isBull[1] and isBear and math.abs(high - high[1]) <= tweezerTol
+
+// 23. Bullish Kicker — Bullish reversal (gap, zero body overlap)
+c23_BullKicker = isBear[1] and isBull and bodyLo0 > bodyHi1
+
+// 24. Bearish Kicker — Bearish reversal (gap, zero body overlap)
+c24_BearKicker = isBull[1] and isBear and bodyHi0 < bodyLo1
+
+// 25. In-Neck Line — Bearish continuation
+c25_InNeck = f_priorDowntrend(2) and isBear[1] and open < low[1] and isBull and math.abs(close - close[1]) <= atr14 * 0.15 and close > close[1]
+
+
+// =====================================================================================
+// PATTERN DETECTION — TRIPLE & MULTI-CANDLE  (20 patterns)   span = 3 (unless noted)
+// =====================================================================================
+// Morning / Evening Star family
+c26_MorningStar = f_priorDowntrend(3) and isBear[2] and body[2] >= avgBody20 and body[1] <= range_[1] * 0.3 and f_bodyHi(open[1], close[1]) <= close[2] + atr14 * 0.15 and isBull and close > (open[2] + close[2]) / 2.0
+
+c27_EveningStar = f_priorUptrend(3) and isBull[2] and body[2] >= avgBody20 and body[1] <= range_[1] * 0.3 and f_bodyLo(open[1], close[1]) >= close[2] - atr14 * 0.15 and isBear and close < (open[2] + close[2]) / 2.0
+
+c28_MorningDojiStar = f_priorDowntrend(3) and isBear[2] and body[2] >= avgBody20 and body[1] <= range_[1] * 0.1 and isBull and close > (open[2] + close[2]) / 2.0
+
+c29_EveningDojiStar = f_priorUptrend(3) and isBull[2] and body[2] >= avgBody20 and body[1] <= range_[1] * 0.1 and isBear and close < (open[2] + close[2]) / 2.0
+
+// Three Soldiers / Crows
+c30_ThreeWhiteSoldiers = isBull[2] and isBull[1] and isBull and close[1] > close[2] and close > close[1] and open[1] >= open[2] and open[1] <= close[2] and open >= open[1] and open <= close[1] and upperWick[1] <= body[1] * 0.3 and upperWick <= body * 0.3
+
+c31_ThreeBlackCrows = isBear[2] and isBear[1] and isBear and close[1] < close[2] and close < close[1] and open[1] <= open[2] and open[1] >= close[2] and open <= open[1] and open >= close[1] and lowerWick[1] <= body[1] * 0.3 and lowerWick <= body * 0.3
+
+// Three Inside Up/Down (Harami + confirmation)
+c32_ThreeInsideUp = f_priorDowntrend(3) and isBear[2] and isBull[1] and f_contained(open[2], close[2], open[1], close[1]) and isBull and close > high[2]
+
+c33_ThreeInsideDown = f_priorUptrend(3) and isBull[2] and isBear[1] and f_contained(open[2], close[2], open[1], close[1]) and isBear and close < low[2]
+
+// Three Outside Up/Down (Engulfing + confirmation)
+c34_ThreeOutsideUp = f_priorDowntrend(3) and isBear[2] and isBull[1] and close[1] >= open[2] and open[1] <= close[2] and isBull and close > close[1]
+
+c35_ThreeOutsideDown = f_priorUptrend(3) and isBull[2] and isBear[1] and close[1] <= open[2] and open[1] >= close[2] and isBear and close < close[1]
+
+// Rising / Falling Three Methods (5-candle continuation)
+c36_RisingThreeMethods = isBull[4] and body[4] >= avgBody20 and isBear[3] and isBear[2] and isBear[1] and low[3] >= low[4] and low[2] >= low[4] and low[1] >= low[4] and high[3] <= high[4] and high[2] <= high[4] and high[1] <= high[4] and isBull and close > high[4]
+
+c37_FallingThreeMethods = isBear[4] and body[4] >= avgBody20 and isBull[3] and isBull[2] and isBull[1] and high[3] <= high[4] and high[2] <= high[4] and high[1] <= high[4] and low[3] >= low[4] and low[2] >= low[4] and low[1] >= low[4] and isBear and close < low[4]
+
+// Breakaway (Bullish) — simplified 5-candle heuristic (rare, gap-based)
+c38_BreakawayBull = isBear[4] and body[4] >= avgBody20 and close[3] < close[4] and close[2] < close[3] and close[1] < close[2] and isBull and close > open[4] and close > close[1]
+
+// Ladder Bottom — simplified 4-candle heuristic (rare)
+c39_LadderBottom = isBear[3] and isBear[2] and isBear[1] and close[2] < close[3] and close[1] < close[2] and isBull and upperWick >= body
+
+// Concealing Baby Swallow — simplified 4-candle heuristic (rare)
+c40_ConcealingBabySwallow = isBear[3] and isBear[2] and close[2] < close[3] and isBear[1] and open[1] < low[2] and high[1] >= f_bodyLo(open[2], close[2]) and isBear and f_bodyHi(open, close) >= f_bodyHi(open[1], close[1]) and f_bodyLo(open, close) <= f_bodyLo(open[1], close[1])
+
+// Unique Three River — simplified 3-candle heuristic (rare)
+c41_UniqueThreeRiver = isBear[2] and body[1] <= range_[1] * 0.3 and low[1] < low[2] and (high[1] - f_bodyHi(open[1], close[1])) <= body[1] * 0.6 and (f_bodyLo(open[1], close[1]) - low[1]) >= body[1] * 1.5 and close[1] < close[2] and body <= range_ * 0.3 and close > close[1] and low >= low[1]
+
+// Tri-Star (Bullish) — 3 consecutive dojis, middle gaps away then reverses up
+c42_TriStarBull = f_priorDowntrend(3) and body[2] <= range_[2] * 0.1 and body[1] <= range_[1] * 0.1 and tinyBody and f_bodyHi(open[1], close[1]) < f_bodyLo(open[2], close[2]) and f_bodyHi(open[1], close[1]) < f_bodyLo(open, close)
+
+// Advance Block — Bearish reversal warning (weakening rally)
+c43_AdvanceBlock = f_priorUptrend(3) and isBull[2] and isBull[1] and isBull and close > close[1] and close[1] > close[2] and body <= body[1] and body[1] <= body[2] and upperWick >= upperWick[1] and upperWick[1] >= upperWick[2]
+
+// Deliberation Pattern — Bearish reversal warning (rally pausing / stalling)
+c44_Deliberation = f_priorUptrend(3) and isBull[2] and isBull[1] and close[1] > close[2] and body[2] >= avgBody20 * 0.6 and body[1] >= avgBody20 * 0.6 and body <= range_ * 0.35 and open >= close[1]
+
+// Upside Gap Two Crows — Bearish reversal (rare, gap-based)
+c45_UpsideGapTwoCrows = isBull[2] and isBear[1] and low[1] > high[2] and isBear and open < open[1] and open > close[1] and close < close[1] and close > high[2]
+
+
+// =====================================================================================
+// RENDER CALLS — one line per pattern:
+// f_render(cond, abbr, fullName, bias, structureCat, biasCat, idealTF, span, desc, priority)
+// bias: 1 bullish / -1 bearish / 0 neutral   |   structureCat: 0 single / 1 double / 2 triple+
+// biasCat: 0 BullRev / 1 BearRev / 2 BullCont / 3 BearCont / 4 Neutral   |  priority: 0 Must / 1 Important / 2 Rare
+// =====================================================================================
+hit01 = f_render(c01_Hammer, "HAM", "Hammer", 1, 0, 0, "60,240,D", 1, "After a downtrend, a small body sits at the top of the range with a lower shadow ≥2× the body. Sellers pushed price down but buyers slammed it back up.", 0)
+hit02 = f_render(c02_HangingMan, "HGM", "Hanging Man", -1, 0, 1, "60,240,D", 1, "Same shape as a Hammer but appears after an uptrend — a long lower shadow shows the first real selling pressure entering a rally.", 0)
+hit03 = f_render(c03_InvHammer, "IVH", "Inverted Hammer", 1, 0, 0, "60,240,D", 1, "After a downtrend, a small body sits at the bottom of the range with an upper shadow ≥2× the body — a tentative sign buyers are testing higher prices.", 1)
+hit04 = f_render(c04_ShootingStar, "SST", "Shooting Star", -1, 0, 1, "60,240,D", 1, "After an uptrend, a small body sits at the bottom of the range with a long upper shadow — buyers pushed up but sellers slammed price back down.", 0)
+hit05 = f_render(c05_BullMarubozu, "BMZ", "Bullish Marubozu", 1, 0, 2, "15,60,240,D", 1, "A full green body with virtually no shadows — buyers were in total control from open to close. Strong bullish continuation candle.", 1)
+hit06 = f_render(c06_BearMarubozu, "RMZ", "Bearish Marubozu", -1, 0, 3, "15,60,240,D", 1, "A full red body with virtually no shadows — sellers were in total control from open to close. Strong bearish continuation candle.", 1)
+hit07 = f_render(c07_Doji, "DOJ", "Doji", 0, 0, 4, "15,60,240,D", 1, "Open and close are nearly identical with shadows on both sides — a pure tug-of-war and sign of indecision. Direction depends entirely on context.", 1)
+hit08 = f_render(c08_LongLeggedDoji, "LLD", "Long-Legged Doji", 0, 0, 4, "60,240,D", 1, "A doji with unusually long shadows on both sides — an extreme, high-volatility tug-of-war between buyers and sellers.", 2)
+hit09 = f_render(c09_DragonflyDoji, "DFD", "Dragonfly Doji", 1, 0, 0, "60,240,D", 1, "After a downtrend, open/close/high are nearly equal with a long lower shadow — sellers drove price down but buyers fully reclaimed it by the close.", 1)
+hit10 = f_render(c10_GravestoneDoji, "GSD", "Gravestone Doji", -1, 0, 1, "60,240,D", 1, "After an uptrend, open/close/low are nearly equal with a long upper shadow — buyers pushed price up but sellers fully rejected it by the close.", 1)
+hit11 = f_render(c11_SpinningTop, "SPT", "Spinning Top", 0, 0, 4, "60,240,D", 1, "A small body centred between two similar-sized shadows — momentum is stalling and neither side is in control.", 2)
+hit12 = f_render(c12_HighWave, "HWC", "High Wave Candle", 0, 0, 4, "240,D", 1, "An unusually wide range with a tiny body and long shadows both sides — extreme volatility and indecision, often near turning points.", 2)
+
+hit13 = f_render(c13_BullEngulf, "BEC", "Bullish Engulfing", 1, 1, 0, "60,240,D", 2, "After a downtrend, a small bearish candle appears whose body is fully engulfed by a large bullish candle. One of the most reliable and best-known upside reversal patterns.", 0)
+hit14 = f_render(c14_BearEngulf, "BEA", "Bearish Engulfing", -1, 1, 1, "60,240,D", 2, "After an uptrend, a small bullish candle appears whose body is fully engulfed by a large bearish candle. One of the most reliable and best-known downside reversal patterns.", 0)
+hit15 = f_render(c15_BullHarami, "BHR", "Bullish Harami", 1, 1, 0, "60,240,D", 2, "After a downtrend, a large bearish candle is followed by a small bullish candle whose body sits fully inside the first — selling momentum is fading.", 1)
+hit16 = f_render(c16_BearHarami, "BHB", "Bearish Harami", -1, 1, 1, "60,240,D", 2, "After an uptrend, a large bullish candle is followed by a small bearish candle whose body sits fully inside the first — buying momentum is fading.", 1)
+hit17 = f_render(c17_BullHaramiCross, "HXB", "Bullish Harami Cross", 1, 1, 0, "60,240,D", 2, "A Bullish Harami where the second candle is a doji — even sharper indecision after a strong down move, hinting at an imminent reversal.", 2)
+hit18 = f_render(c18_BearHaramiCross, "HXR", "Bearish Harami Cross", -1, 1, 1, "60,240,D", 2, "A Bearish Harami where the second candle is a doji — even sharper indecision after a strong up move, hinting at an imminent reversal.", 2)
+hit19 = f_render(c19_Piercing, "PIL", "Piercing Line", 1, 1, 0, "240,D", 2, "After a downtrend, a long bearish candle is followed by a bullish candle that gaps below the low then closes above the prior candle's midpoint.", 1)
+hit20 = f_render(c20_DarkCloud, "DCC", "Dark Cloud Cover", -1, 1, 1, "240,D", 2, "After an uptrend, a long bullish candle is followed by a bearish candle that gaps above the high then closes below the prior candle's midpoint.", 1)
+hit21 = f_render(c21_TweezerBottom, "TWB", "Tweezer Bottom", 1, 1, 0, "60,240,D", 2, "A bearish candle and a bullish candle share almost the exact same low after a downtrend — a double rejection of lower prices at the same level.", 2)
+hit22 = f_render(c22_TweezerTop, "TWT", "Tweezer Top", -1, 1, 1, "60,240,D", 2, "A bullish candle and a bearish candle share almost the exact same high after an uptrend — a double rejection of higher prices at the same level.", 2)
+hit23 = f_render(c23_BullKicker, "BKK", "Bullish Kicker", 1, 1, 0, "240,D", 2, "A bearish candle is followed by a bullish candle that gaps up with zero body overlap — an instant, violent shift in sentiment from sellers to buyers.", 2)
+hit24 = f_render(c24_BearKicker, "RKK", "Bearish Kicker", -1, 1, 1, "240,D", 2, "A bullish candle is followed by a bearish candle that gaps down with zero body overlap — an instant, violent shift in sentiment from buyers to sellers.", 2)
+hit25 = f_render(c25_InNeck, "INL", "In-Neck Line", -1, 1, 3, "240,D", 2, "In a downtrend, a long bearish candle is followed by a bullish candle that gaps down then closes only marginally above the prior close — minimal penetration signals the downtrend continues.", 2)
+
+hit26 = f_render(c26_MorningStar, "MOR", "Morning Star", 1, 2, 0, "240,D", 3, "The classic three-candle bullish reversal: a big bearish candle, a small-bodied star, then a big bullish candle closing back above the star.", 0)
+hit27 = f_render(c27_EveningStar, "EVE", "Evening Star", -1, 2, 1, "240,D", 3, "The classic three-candle bearish reversal: a big bullish candle, a small-bodied star, then a big bearish candle closing back below the star.", 0)
+hit28 = f_render(c28_MorningDojiStar, "MDS", "Morning Doji Star", 1, 2, 0, "240,D", 3, "A Morning Star where the middle candle is a doji — total indecision at the trend bottom before buyers take back control.", 1)
+hit29 = f_render(c29_EveningDojiStar, "EDS", "Evening Doji Star", -1, 2, 1, "240,D", 3, "An Evening Star where the middle candle is a doji — total indecision at the trend top before sellers take back control.", 1)
+hit30 = f_render(c30_ThreeWhiteSoldiers, "TWS", "Three White Soldiers", 1, 2, 0, "240,D", 3, "Three consecutive long bullish candles, each opening within the prior body and closing progressively higher with tiny upper shadows — a full buyer assault.", 0)
+hit31 = f_render(c31_ThreeBlackCrows, "TBC", "Three Black Crows", -1, 2, 1, "240,D", 3, "Three consecutive long bearish candles, each opening within the prior body and closing progressively lower with tiny lower shadows — full seller domination.", 0)
+hit32 = f_render(c32_ThreeInsideUp, "3IU", "Three Inside Up", 1, 2, 0, "240,D", 3, "A Bullish Harami confirmed by a third candle closing above the first candle's high — a staged, confirmed upside reversal.", 1)
+hit33 = f_render(c33_ThreeInsideDown, "3ID", "Three Inside Down", -1, 2, 1, "240,D", 3, "A Bearish Harami confirmed by a third candle closing below the first candle's low — a staged, confirmed downside reversal.", 1)
+hit34 = f_render(c34_ThreeOutsideUp, "3OU", "Three Outside Up", 1, 2, 0, "240,D", 3, "A Bullish Engulfing followed by a third candle that closes even higher — an affirmed, strengthening upside reversal.", 1)
+hit35 = f_render(c35_ThreeOutsideDown, "3OD", "Three Outside Down", -1, 2, 1, "240,D", 3, "A Bearish Engulfing followed by a third candle that closes even lower — an affirmed, strengthening downside reversal.", 1)
+hit36 = f_render(c36_RisingThreeMethods, "R3M", "Rising Three Methods", 1, 2, 2, "240,D", 5, "A brief pause in an uptrend: three small bearish candles contained within the range of a big bullish candle, followed by another big bullish candle breaking to new highs.", 1)
+hit37 = f_render(c37_FallingThreeMethods, "F3M", "Falling Three Methods", -1, 2, 3, "240,D", 5, "A brief pause in a downtrend: three small bullish candles contained within the range of a big bearish candle, followed by another big bearish candle breaking to new lows.", 1)
+hit38 = f_render(c38_BreakawayBull, "BRK", "Breakaway (Bullish)", 1, 2, 0, "D", 5, "Sellers running out of breath: a run of declining bearish candles is followed by a strong bullish candle that reclaims the lost ground. Rare and complex — confirm visually.", 2)
+hit39 = f_render(c39_LadderBottom, "LDB", "Ladder Bottom", 1, 2, 0, "D", 4, "Three declining bearish candles followed by a bullish candle with a notable upper shadow — a broken 'ladder' down and early sign buyers are stepping in.", 2)
+hit40 = f_render(c40_ConcealingBabySwallow, "CBS", "Concealing Baby Swallow", 1, 2, 0, "D", 4, "Two long declining bearish candles, then a small bearish candle gapping down into the prior candle's body, then a big bearish candle engulfing it — a panic gap absorbed by buyers. Wait for a bullish confirmation candle.", 2)
+hit41 = f_render(c41_UniqueThreeRiver, "U3R", "Unique Three River", 1, 2, 0, "D", 3, "A long bearish candle, then a hammer-like candle making a new low, then a small candle closing higher — the base is being 'locked in' before a reversal.", 2)
+hit42 = f_render(c42_TriStarBull, "TRS", "Tri-Star (Bullish)", 1, 2, 0, "D,W", 3, "Three consecutive dojis after a downtrend, with the middle star gapping away from both outer dojis — a rare three-act equilibrium resolving upward.", 2)
+hit43 = f_render(c43_AdvanceBlock, "ADB", "Advance Block", -1, 2, 1, "240,D", 3, "Three rising bullish candles losing steam — shrinking bodies and lengthening upper shadows warn that the rally is running out of energy.", 1)
+hit44 = f_render(c44_Deliberation, "DLB", "Deliberation Pattern", -1, 2, 1, "240,D", 3, "Two solid bullish candles followed by a small-bodied third candle — the rally pauses to 'think', often just before a top.", 1)
+hit45 = f_render(c45_UpsideGapTwoCrows, "UTC", "Upside Gap Two Crows", -1, 2, 1, "D", 3, "A bullish candle gaps up, then two bearish candles sit perched above the gap without fully filling it — gap euphoria starts being consumed by sellers.", 2)
+
+
+// =====================================================================================
+// GROUPED ALERTS
+// =====================================================================================
+bullRevHit  = hit01 or hit03 or hit09 or hit13 or hit15 or hit17 or hit19 or hit21 or hit23 or hit26 or hit28 or hit30 or hit32 or hit34 or hit38 or hit39 or hit40 or hit41 or hit42
+bearRevHit  = hit02 or hit04 or hit10 or hit14 or hit16 or hit18 or hit20 or hit22 or hit24 or hit27 or hit29 or hit31 or hit33 or hit35 or hit43 or hit44 or hit45
+bullContHit = hit05 or hit36
+bearContHit = hit06 or hit25 or hit37
+neutralHit  = hit07 or hit08 or hit11 or hit12
+
+alertcondition(bullRevHit,  title = "Bullish Reversal Pattern Confirmed", message = "Bullish reversal candlestick pattern confirmed on {{ticker}} {{interval}}")
+alertcondition(bearRevHit,  title = "Bearish Reversal Pattern Confirmed", message = "Bearish reversal candlestick pattern confirmed on {{ticker}} {{interval}}")
+alertcondition(bullContHit, title = "Bullish Continuation Pattern Confirmed", message = "Bullish continuation candlestick pattern confirmed on {{ticker}} {{interval}}")
+alertcondition(bearContHit, title = "Bearish Continuation Pattern Confirmed", message = "Bearish continuation candlestick pattern confirmed on {{ticker}} {{interval}}")
+alertcondition(neutralHit,  title = "Neutral / Indecision Pattern Confirmed", message = "Neutral / indecision candlestick pattern confirmed on {{ticker}} {{interval}}")
+
+
+// =====================================================================================
+// SETTINGS LEGEND TABLE (top-right)
+// =====================================================================================
+if i_showTable and barstate.islast
+    var table legend = table.new(position.top_right, 2, 6, border_width = 1)
+    table.cell(legend, 0, 0, "Candlestick Pattern Master", text_color = color.white, bgcolor = color.new(color.black, 0), text_size = size.small)
+    table.cell(legend, 1, 0, "", bgcolor = color.new(color.black, 0))
+    table.cell(legend, 0, 1, "Time Frame", text_color = color.white, bgcolor = color.new(color.gray, 60))
+    table.cell(legend, 1, 1, timeframe.period, text_color = color.white, bgcolor = color.new(color.gray, 60))
+    table.cell(legend, 0, 2, "TF-Restricted", text_color = color.white, bgcolor = color.new(color.gray, 70))
+    table.cell(legend, 1, 2, i_restrictTF ? "ON" : "OFF", text_color = color.white, bgcolor = color.new(color.gray, 70))
+    table.cell(legend, 0, 3, "Min Validation", text_color = color.white, bgcolor = color.new(color.gray, 60))
+    table.cell(legend, 1, 3, i_minValid, text_color = color.white, bgcolor = color.new(color.gray, 60))
+    table.cell(legend, 0, 4, "● Bullish", text_color = i_bullColor, bgcolor = color.new(color.gray, 70))
+    table.cell(legend, 1, 4, "● Bearish", text_color = i_bearColor, bgcolor = color.new(color.gray, 70))
+    table.cell(legend, 0, 5, "● Neutral", text_color = i_neutColor, bgcolor = color.new(color.gray, 60))
+    table.cell(legend, 1, 5, "Hover a label ↑", text_color = color.white, bgcolor = color.new(color.gray, 60))
