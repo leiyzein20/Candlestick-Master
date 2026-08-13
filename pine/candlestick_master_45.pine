@@ -14,7 +14,9 @@
 //  Category codes :  1 = single candle, 2 = double candle, 3 = triple & multi
 //  Priority codes :  1 = Must, 2 = Important, 3 = Rare
 // ═══════════════════════════════════════════════════════════════════════════════════════
-indicator("Candlestick Master 45 — OHLC Engine", "CS45", overlay = true, max_labels_count = 500)
+// max_bars_back is set explicitly because several lookbacks are driven by inputs
+// (EMA slope, pivot right-bars, per-pattern trend offsets) rather than by constants.
+indicator("Candlestick Master 45 — OHLC Engine", "CS45", overlay = true, max_labels_count = 500, max_bars_back = 500)
 
 // ───────────────────────────────────────────────────────────────────────────────────────
 // ① DISPLAY
@@ -732,6 +734,10 @@ f_check(44, p45, hh3, ll3, -1)
 int    shiftBars = confirmOn ? 1 : 0
 string tick      = " ✓"
 string cross     = " ✗"
+// The label is anchored to the pattern candle, which is one bar back while the
+// confirmation engine is on. Constant offsets keep Pine's history buffer deterministic.
+float  lowRef    = confirmOn ? low[1] : low
+float  highRef   = confirmOn ? high[1] : high
 
 if barstate.isconfirmed and array.size(C_IDX) > 0
     int shown = 0
@@ -744,7 +750,6 @@ if barstate.isconfirmed and array.size(C_IDX) > 0
             int   len = array.get(P_LEN, idx)
             bool  bull = dir > 0
             bool  bear = dir < 0
-            bool  neut = dir == 0
 
             // ── status from the confirmation candle ──
             bool broke   = bull ? close > phi : bear ? close < plo : (close > phi or close < plo)
@@ -752,7 +757,11 @@ if barstate.isconfirmed and array.size(C_IDX) > 0
             string status = not confirmOn ? "FORMING" : broke ? "CONFIRMED" : failed ? "FAILED" : "PENDING"
 
             // ── the five cross-checks ──
-            bool cTrend = bull ? dnRaw[len] : bear ? upRaw[len] : (dnRaw[len] or upRaw[len])
+            // The trend is read from before the pattern's FIRST candle, so the pattern's own
+            // candles cannot manufacture the trend they are supposed to be reversing.
+            bool wasDn = len == 1 ? dnRaw[1] : len == 2 ? dnRaw[2] : len == 3 ? dnRaw[3] : len == 4 ? dnRaw[4] : dnRaw[5]
+            bool wasUp = len == 1 ? upRaw[1] : len == 2 ? upRaw[2] : len == 3 ? upRaw[3] : len == 4 ? upRaw[4] : upRaw[5]
+            bool cTrend = bull ? wasDn : bear ? wasUp : (wasDn or wasUp)
             bool cLoc   = bull ? atSupport : bear ? atResistance : (atSupport or atResistance)
             bool cRsi   = bull ? (bullDiv or rsiVal < rsiOS) : bear ? (bearDiv or rsiVal > rsiOB) : (rsiVal < rsiOS or rsiVal > rsiOB)
             bool cEma   = bull ? close > emaF : bear ? close < emaF : false
@@ -781,7 +790,7 @@ if barstate.isconfirmed and array.size(C_IDX) > 0
 
                 color base = bull ? color.rgb(38, 166, 154) : bear ? color.rgb(239, 83, 80) : color.rgb(120, 123, 134)
                 int   trans = status == "CONFIRMED" ? 5 : status == "PENDING" or status == "FORMING" ? 45 : 70
-                float yBase = bull ? low[shiftBars] - atr * labelOff : bear ? high[shiftBars] + atr * labelOff : high[shiftBars] + atr * labelOff
+                float yBase = bull ? lowRef - atr * labelOff : highRef + atr * labelOff
                 float y = bull ? yBase - atr * 0.55 * shown : yBase + atr * 0.55 * shown
                 string txt = showGlyph ? code + (status == "CONFIRMED" ? "✓" : status == "FAILED" ? "✗" : "·") : code
 

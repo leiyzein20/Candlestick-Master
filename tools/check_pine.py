@@ -149,7 +149,50 @@ def main() -> int:
         if int(i) != want:
             errors.append(f"f_check index {i} does not match detector {var} (expected {want})")
 
-    # 5. every input group is referenced
+    # 5. every identifier used by a detector or a helper must be declared somewhere.
+    #    A typo here is a TradingView compile error that nothing else in this repo catches.
+    declared = set(re.findall(
+        r"^(?:\s*)(?:var\s+)?(?:bool|float|int|string|color|table|array<\w+>)\s+(\w+)\s*[:]?=",
+        raw, re.M))
+    declared |= set(re.findall(r"^(\w+)\([^)]*\)\s*=>", raw, re.M))       # functions
+    declared |= set(re.findall(r"^\s*(?:for|for\s+)(\w+)\s*=", raw, re.M))  # loop vars
+
+    keywords = {
+        "and", "or", "not", "if", "else", "for", "to", "by", "while", "switch", "var",
+        "varip", "true", "false", "na", "bool", "float", "int", "string", "color", "table",
+        "series", "simple", "const", "input", "export", "import", "type", "method", "break",
+        "continue", "array",
+    }
+    builtins = {
+        "open", "high", "low", "close", "volume", "hl2", "hlc3", "ohlc4", "time",
+        "bar_index", "last_bar_index", "nz", "plot", "plotshape", "indicator", "alert",
+        "label", "line", "box", "fill", "hline", "alertcondition",
+    }
+
+    def idents(expr: str) -> set[str]:
+        # drop string literals, then keep bare identifiers (not qualified by a namespace)
+        expr = re.sub(r'"[^"]*"', " ", expr)
+        found = set()
+        for m in re.finditer(r"(?<![\w.])[A-Za-z_]\w*", expr):
+            if expr[m.end():m.end() + 1] == ".":   # namespace like math. or ta.
+                continue
+            found.add(m.group(0))
+        return found
+
+    checked_lines = [
+        (n, ln) for n, ln in enumerate(lines, 1)
+        if re.match(r"^bool (p\d{2}[bs]?|sep\w+|kick\w+|g[OW]\w+|t[UD][pn]\d) =", ln)
+        or (re.match(r"^f_check\(", ln) and not ln.rstrip().endswith("=>"))
+    ]
+    for n, ln in checked_lines:
+        expr = strip_comment(ln)
+        expr = expr.split("=", 1)[1] if re.match(r"^bool ", expr) else expr
+        for name in sorted(idents(expr)):
+            if name in keywords or name in builtins or name in declared:
+                continue
+            errors.append(f"line {n}: identifier {name!r} is used but never declared")
+
+    # 6. every input group is referenced
     for grp in re.findall(r"^string (G_[A-Z]+) =", raw, re.M):
         if len(re.findall(rf"\b{grp}\b", raw)) < 2:
             warnings.append(f"input group {grp} declared but never used")
