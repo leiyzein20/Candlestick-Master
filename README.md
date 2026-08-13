@@ -58,9 +58,7 @@ Reliability: ★ High (78%) · Ideal TF: H1 · H4 · D1
 
 **Triple & multi candle (26–30):** 26 Morning Star (MS), 27 Evening Star (ES), 28 Morning Doji Star (MDS), 29 Evening Doji Star (EDS), 30 Three White Soldiers (TWS).
 
-Remaining: triple & multi-candle patterns 31–45, pending spec data.
-
-Remaining batches (11–45) plug into the same engines: each new pattern is one shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
+Remaining: triple & multi-candle patterns 31–45, pending spec data. New patterns plug into the same engines: each one is a shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
 
 ## Disclaimer
 
