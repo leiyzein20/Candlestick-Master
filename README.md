@@ -52,7 +52,7 @@ Reliability: ★ High (78%) · Ideal TF: H1 · H4 · D1
 
 ## Pattern coverage
 
-Batch 1 (implemented): 01 Hammer, 02 Hanging Man, 03 Inverted Hammer, 04 Shooting Star, 05 Bullish Marubozu, 06 Bearish Marubozu, 07 Doji, 08 Dragonfly Doji, 09 Gravestone Doji, 10 Spinning Top, plus 13 Bullish Engulfing as a batch-2 preview.
+Batch 1 (implemented with the master's spec data): 01 Hammer (HAM), 02 Hanging Man (HGM), 03 Inverted Hammer (IH), 04 Shooting Star (SST), 05 Bullish Marubozu (BUM), 06 Bearish Marubozu (BEM), 07 Spinning Top (SPT), 08 Standard Doji (DOJ), 09 Long-Legged Doji (LLD), 10 Dragonfly Doji (DFD). Previews awaiting spec data: Gravestone Doji (GSD), Bullish Engulfing (BEC).
 
 Remaining batches (11–45) plug into the same engines: each new pattern is one shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
 
