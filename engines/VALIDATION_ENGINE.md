@@ -100,6 +100,13 @@ One piece of evidence, one point:
 A pattern still at `DETECTED` cannot be `VERY STRONG`. `VERY STRONG` requires the confirmation
 factor, so the top band always means "and it actually followed through".
 
+Worth recording honestly: with the current factor set this ceiling is **already implied by the
+arithmetic**. Confirmation is never excluded, so `ratio > 0.8333` forces `score == maxScore`,
+which forces every measurable factor — including confirmation — to have passed. The explicit
+rule is kept as a guard against a future change to the band edges or to factor weights that
+would break that coincidence, and the test suite asserts it directly rather than relying on the
+arithmetic holding.
+
 ### 5.4 Exclusion is neutral
 
 An excluded factor lowers `maxScore` and is printed as `n/a` with its reason. It is never a

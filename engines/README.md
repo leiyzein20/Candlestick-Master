@@ -29,6 +29,11 @@ An engine never introduces a rule that the master specification does not have.
 | [`VALIDATION_ENGINE.md`](VALIDATION_ENGINE.md) | L6 | confluence scoring, bands, anti-inflation rules |
 | [`DISPLAY_ENGINE.md`](DISPLAY_ENGINE.md) | L8 | labels, tooltips, info panel, alert payloads |
 
+`RELATIONSHIP_ENGINE.md` is the twelfth file in a list of eleven requested engines. It exists
+because the previous-candle relationship calculations are a separate requirement in their own
+right, and folding them into `OHLC_ENGINE.md` would put single-candle and multi-candle
+mathematics in one file — the two things patterns most often need to cite separately.
+
 ## Shared values computed once per bar
 
 Declared here so no engine and no pattern recomputes them
