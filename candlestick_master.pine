@@ -63,7 +63,7 @@ pivLen    = input.int(5,     "Pivot length (S/R + divergence)",  group = grpCtx,
 zoneMult  = input.float(0.5, "S/R zone width (x ATR)",           group = grpCtx, minval = 0.1, step = 0.1)
 divWindow = input.int(12,    "RSI divergence valid for (bars)",  group = grpCtx, minval = 1)
 
-grpP1 = "Patterns — Single Candle (01–10)"
+grpP1 = "Patterns — Single Candle (01–12)"
 p01 = input.bool(true, "01 Hammer (HAM)",            group = grpP1)
 p02 = input.bool(true, "02 Hanging Man (HGM)",       group = grpP1)
 p03 = input.bool(true, "03 Inverted Hammer (IH)",    group = grpP1)
@@ -74,10 +74,18 @@ p07 = input.bool(true, "07 Spinning Top (SPT)",      group = grpP1)
 p08 = input.bool(true, "08 Standard Doji (DOJ)",     group = grpP1)
 p09 = input.bool(true, "09 Long-Legged Doji (LLD)",  group = grpP1)
 p10 = input.bool(true, "10 Dragonfly Doji (DFD)",    group = grpP1)
+p11 = input.bool(true, "11 Gravestone Doji (GSD)",   group = grpP1)
+p12 = input.bool(true, "12 Four Price Doji (FPD)",   group = grpP1)
 
-grpP2 = "Patterns — Preview (awaiting your data)"
-pGSD = input.bool(true, "Gravestone Doji (GSD)",     group = grpP2)
-p13  = input.bool(true, "Bullish Engulfing (BEC)",   group = grpP2)
+grpP2 = "Patterns — Double Candle (13–20)"
+p13 = input.bool(true, "13 Bullish Engulfing (BEC)", group = grpP2)
+p14 = input.bool(true, "14 Bearish Engulfing (BRE)", group = grpP2)
+p15 = input.bool(true, "15 Bullish Harami (BUH)",    group = grpP2)
+p16 = input.bool(true, "16 Bearish Harami (BEH)",    group = grpP2)
+p17 = input.bool(true, "17 Harami Cross (HC)",       group = grpP2)
+p18 = input.bool(true, "18 Piercing Line (PL)",      group = grpP2)
+p19 = input.bool(true, "19 Dark Cloud Cover (DCC)",  group = grpP2)
+p20 = input.bool(true, "20 Tweezer Bottom (TWB)",    group = grpP2)
 
 // ════════════════════════════ ANATOMY ENGINE ═══════════════════════════════
 atrV    = ta.atr(14)
@@ -240,7 +248,18 @@ graveShape   = dojiShape and minRange and upW >= rng * 0.6 and loW <= rng * 0.15
 longLegShape = dojiShape and not dragonShape and not graveShape and rng >= atrV * 1.1 and upW >= rng * 0.35 and loW >= rng * 0.35
 plainDoji    = dojiShape and not dragonShape and not graveShape and not longLegShape
 spinTopShape = rng > 0 and not dojiShape and bodyPct <= 0.30 and upW >= body and loW >= body
+fpdShape     = rng <= atrV * 0.10                       // open ≈ high ≈ low ≈ close
+
+// Double-candle shapes (body-vs-body relations; shadows never required)
 becShape     = bearC[1] and bullC and open <= close[1] and close >= open[1] and body > body[1] and body[1] > 0
+breShape     = bullC[1] and bearC and open >= close[1] and close <= open[1] and body > body[1] and body[1] > 0
+insideBody   = math.max(open, close) <= math.max(open[1], close[1]) and math.min(open, close) >= math.min(open[1], close[1])
+bullHarShape = bearC[1] and longBody[1] and bullC and not dojiShape and insideBody and body <= body[1] * 0.6
+bearHarShape = bullC[1] and longBody[1] and bearC and not dojiShape and insideBody and body <= body[1] * 0.6
+hcShape      = longBody[1] and dojiShape and insideBody and not dragonShape and not graveShape
+plShape      = bearC[1] and longBody[1] and bullC and open < close[1] and close > prevBodyMid and close < open[1]
+dccShape     = bullC[1] and longBody[1] and bearC and open > close[1] and close < prevBodyMid and close > open[1]
+twbShape     = bearC[1] and bullC and math.abs(low - low[1]) <= atrV * 0.10
 
 // Neutral-pattern trend context text
 ctxTxt = "Trend: " + (upTrend[1] ? "Uptrend" : downTrend[1] ? "Downtrend" : "Sideways") + " (context)"
@@ -267,8 +286,8 @@ if barstate.isconfirmed
     // 07 SPINNING TOP — indecision alarm · Important · All TFs
     if spinTopShape and minRange
         fire(p07, 1, "I", "IN", 0, "ALL", "SPT", "Spinning Top", ctxTxt, "Tiny body mid-range with roughly equal shadows — buyers and sellers fight to a draw. An indecision alarm, not a standalone entry signal.", "SL: opposite side of the breakout direction  |  TP: follows the breakout to the next S/R level", "★ Low (55%)", "All TFs", high, low)
-    // 08 STANDARD DOJI — indecision marker · Important · H1 H4 D1
-    if plainDoji and minRange
+    // 08 STANDARD DOJI — indecision marker · Important · H1 H4 D1 (skipped when Harami Cross fires)
+    if plainDoji and minRange and not hcShape
         fire(p08, 1, "I", "IN", 0, "60,240,D", "DOJ", "Standard Doji", ctxTxt, "Open ≈ close so the body is a thin line — maximum indecision. After a long trend it is often the first crack in the ruling side's dominance. A warning, not an entry signal.", "SL: doji shadow tip opposite the entry  |  TP: nearest structure level (conservative targets)", "★ Low (58%)", "H1 · H4 · D1", high, low)
     // 09 LONG-LEGGED DOJI — volatility indecision · Important · H4 D1
     if longLegShape
@@ -276,12 +295,36 @@ if barstate.isconfirmed
     // 10 DRAGONFLY DOJI — bullish reversal after downtrend · Important · H1 H4 D1
     if dragonShape and downTrend[1]
         fire(p10, 1, "I", "BR", 1, "60,240,D", "DFD", "Dragonfly Doji", "Trend: Downtrend ✓", "Open, close and high at nearly the same level with a very long lower shadow — sellers pressed hard but buyers returned it all; strong downside rejection.", "SL: a few ticks below the lower-shadow tip  |  TP: nearest resistance; trail the stop to maximize the swing", "★ Fair (66%)", "H1 · H4 · D1", high, low)
-    // GRAVESTONE DOJI (preview — awaiting your data) — bearish reversal after uptrend
+    // 11 GRAVESTONE DOJI — bearish reversal after uptrend · Important · H1 H4 D1
     if graveShape and upTrend[1]
-        fire(pGSD, 1, "I", "SR", -1, "60,240,D", "GSD", "Gravestone Doji", "Trend: Uptrend ✓", "Doji with a long upper shadow and open/close/low at nearly the same level — buyers pushed high but sellers erased it all.", "SL: above the gravestone high  |  TP: nearest support", "★ Good (67%)", "H1 · H4 · D1", high, low)
-    // BULLISH ENGULFING (preview from batch 2) — bullish reversal · Must · H1 H4 D1
+        fire(p11, 1, "I", "SR", -1, "60,240,D", "GSD", "Gravestone Doji", "Trend: Uptrend ✓", "Open, close and low nearly identical with a very long upper shadow — buyers pushed price high but totally failed to hold it; a sharp upside rejection.", "SL: a few ticks above the upper-shadow tip  |  TP: nearest support; if structure breaks, target the previous swing low", "★ Fair (66%)", "H1 · H4 · D1", high, low)
+    // 12 FOUR PRICE DOJI — market-condition marker · Rare · D1 W1
+    if fpdShape
+        fire(p12, 1, "R", "IN", 0, "D,W", "FPD", "Four Price Doji", ctxTxt, "Open = high = low = close: a horizontal line — extremely thin liquidity or a total standoff. Often marks the phase before a volatility explosion. Not for trading.", "SL: opposite side of the breakout candle  |  TP: follow the breakout momentum to the nearest structure level", "★ Low (50%)", "D1 · W1", high, low)
+    // 13 BULLISH ENGULFING — bullish reversal after downtrend · Must · H1 H4 D1
     if becShape and downTrend[2]
-        fire(p13, 2, "M", "BR", 1, "60,240,D", "BEC", "Bullish Engulfing", "Trend: Downtrend ✓", "After a downtrend, a small bearish candle's body is fully engulfed by a large bullish candle — total, instant transfer of control to buyers.", "SL: below the engulfing candle low  |  TP: nearest resistance then swing high; often starts long moves — consider trailing", "★ High (78%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+        fire(p13, 2, "M", "BR", 1, "60,240,D", "BEC", "Bullish Engulfing", "Trend: Downtrend ✓", "After a downtrend, a small bearish candle's body is fully engulfed by a large bullish candle — total, instant transfer of control from sellers to buyers.", "SL: below the engulfing candle low  |  TP: nearest resistance then swing high; often starts long moves — consider trailing", "★ High (78%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 14 BEARISH ENGULFING — bearish reversal after uptrend · Must · H1 H4 D1
+    if breShape and upTrend[2]
+        fire(p14, 2, "M", "SR", -1, "60,240,D", "BRE", "Bearish Engulfing", "Trend: Uptrend ✓", "After an uptrend, a small bullish candle is fully engulfed by a large bearish candle — heavy distribution and a transfer of control to sellers.", "SL: above the engulfing candle high  |  TP: nearest support then swing low; trail when structure starts to break", "★ High (78%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 15 BULLISH HARAMI — bullish reversal after downtrend · Important · H4 D1
+    if bullHarShape and downTrend[2]
+        fire(p15, 2, "I", "BR", 1, "240,D", "BUH", "Bullish Harami", "Trend: Downtrend ✓", "A large bearish candle followed by a small bullish candle whose body sits fully inside the first body — selling pressure suddenly loses steam; the market pauses before a big decision.", "SL: below candle 1 low  |  TP: nearest resistance or the midpoint/top of candle 1's body", "★ Fair (64%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 16 BEARISH HARAMI — bearish reversal after uptrend · Important · H4 D1
+    if bearHarShape and upTrend[2]
+        fire(p16, 2, "I", "SR", -1, "240,D", "BEH", "Bearish Harami", "Trend: Uptrend ✓", "A large bullish candle followed by a small bearish candle whose body sits fully inside the first body — upside momentum is locked and starting to run out.", "SL: above candle 1 high  |  TP: nearest support or the midpoint/bottom of candle 1's body", "★ Fair (64%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 17 HARAMI CROSS — neutral freeze at trend end · Important · H4 D1
+    if hcShape and (upTrend[2] or downTrend[2])
+        fire(p17, 2, "I", "IN", 0, "240,D", "HC", "Harami Cross", upTrend[2] ? "Trend: Uptrend (end of trend) ✓" : "Trend: Downtrend (end of trend) ✓", "A long trending candle followed by a doji locked inside its body — a trending market suddenly freezes. Total doubt that often precedes reversals, especially in extreme areas.", "SL: pattern end opposite the entry  |  TP: nearest structure level; enter only on a confirmed close outside the pattern range", "★ Fair (66%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 18 PIERCING LINE — bullish reversal after downtrend · Must · H4 D1
+    if plShape and downTrend[2]
+        fire(p18, 2, "M", "BR", 1, "240,D", "PL", "Piercing Line", "Trend: Downtrend ✓", "After a downtrend, the second candle opens low then rallies to close above 50% of the first red body — buyers reclaim half of the sellers' territory; a serious reversal.", "SL: below candle 2 low  |  TP: nearest resistance; if the close pierces candle 1's open the pattern upgrades to engulfing — aim further", "★ Good (70%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 19 DARK CLOUD COVER — bearish reversal after uptrend · Must · H4 D1
+    if dccShape and upTrend[2]
+        fire(p19, 2, "M", "SR", -1, "240,D", "DCC", "Dark Cloud Cover", "Trend: Uptrend ✓", "After an uptrend, the second candle opens high then falls to close below 50% of the first green body — aggressive distribution; a dark cloud for buyers.", "SL: above candle 2 high  |  TP: nearest support; if it pierces candle 1's open it turns into engulfing — extend the target", "★ Good (70%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 20 TWEEZER BOTTOM — bullish reversal after downtrend · Important · H1 H4 D1
+    if twbShape and downTrend[2]
+        fire(p20, 2, "I", "BR", 1, "60,240,D", "TWB", "Tweezer Bottom", "Trend: Downtrend ✓", "A red candle then a green candle sharing identical (or nearly identical) lows — price rejected twice from the same level; a solid floor with real demand defending it.", "SL: a few ticks below the twin lows  |  TP: nearest resistance; double-rejection structures often start long swings", "★ Good (67%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
 
 // ═══════════════ STATE UPDATES: CONFIRM / FAIL / EXPIRE ════════════════════
 if barstate.isconfirmed and insts.size() > 0
