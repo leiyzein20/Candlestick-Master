@@ -192,7 +192,25 @@ def main() -> int:
                 continue
             errors.append(f"line {n}: identifier {name!r} is used but never declared")
 
-    # 6. every input group is referenced
+    # 6. every string compared against a dropdown input must exist in that dropdown.
+    #    A single mismatched character silently disables a whole branch at runtime.
+    for m in re.finditer(
+            r"^\s*string\s+(\w+)\s*=\s*input\.string\(\s*\"([^\"]*)\"\s*,\s*\"[^\"]*\"\s*,"
+            r"\s*options\s*=\s*\[([^\]]*)\]", raw, re.M):
+        var, default, opts_raw = m.group(1), m.group(2), m.group(3)
+        opts = set(re.findall(r'"([^"]*)"', opts_raw))
+        if default not in opts:
+            errors.append(f"input {var}: default {default!r} is not one of its options")
+        for cmp_lit in re.findall(rf'{var}\s*[!=]=\s*"([^"]*)"', raw):
+            if cmp_lit not in opts:
+                errors.append(f"input {var}: compared against {cmp_lit!r}, which is not an option")
+        used = {c for c in re.findall(rf'{var}\s*[!=]=\s*"([^"]*)"', raw)}
+        # a dropdown option that is never compared and is not the fall-through default
+        never = opts - used
+        if len(never) > 1:
+            warnings.append(f"input {var}: options never compared explicitly: {sorted(never)}")
+
+    # 7. every input group is referenced
     for grp in re.findall(r"^string (G_[A-Z]+) =", raw, re.M):
         if len(re.findall(rf"\b{grp}\b", raw)) < 2:
             warnings.append(f"input group {grp} declared but never used")
