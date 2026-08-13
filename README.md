@@ -54,9 +54,11 @@ Reliability: ★ High (78%) · Ideal TF: H1 · H4 · D1
 
 **Single candle (01–12):** 01 Hammer (HAM), 02 Hanging Man (HGM), 03 Inverted Hammer (IH), 04 Shooting Star (SST), 05 Bullish Marubozu (BUM), 06 Bearish Marubozu (BEM), 07 Spinning Top (SPT), 08 Standard Doji (DOJ), 09 Long-Legged Doji (LLD), 10 Dragonfly Doji (DFD), 11 Gravestone Doji (GSD), 12 Four Price Doji (FPD).
 
-**Double candle (13–20):** 13 Bullish Engulfing (BEC), 14 Bearish Engulfing (BRE), 15 Bullish Harami (BUH), 16 Bearish Harami (BEH), 17 Harami Cross (HC), 18 Piercing Line (PL), 19 Dark Cloud Cover (DCC), 20 Tweezer Bottom (TWB).
+**Double candle (13–25):** 13 Bullish Engulfing (BEC), 14 Bearish Engulfing (BRE), 15 Bullish Harami (BUH), 16 Bearish Harami (BEH), 17 Harami Cross (HC), 18 Piercing Line (PL), 19 Dark Cloud Cover (DCC), 20 Tweezer Bottom (TWB), 21 Tweezer Top (TWT), 22 Matching Low (ML), 23 Matching High (MH), 24 Stick Sandwich (SSW), 25 Kicking Pattern (KCK).
 
-Remaining: double-candle patterns 21–25 and the triple & multi-candle group (26–45), pending spec data.
+**Triple & multi candle (26–30):** 26 Morning Star (MS), 27 Evening Star (ES), 28 Morning Doji Star (MDS), 29 Evening Doji Star (EDS), 30 Three White Soldiers (TWS).
+
+Remaining: triple & multi-candle patterns 31–45, pending spec data.
 
 Remaining batches (11–45) plug into the same engines: each new pattern is one shape condition plus one `fire()` call. Ideal timeframes per pattern are the `"60,240,D"`-style strings in each `fire()` call.
 

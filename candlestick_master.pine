@@ -77,7 +77,7 @@ p10 = input.bool(true, "10 Dragonfly Doji (DFD)",    group = grpP1)
 p11 = input.bool(true, "11 Gravestone Doji (GSD)",   group = grpP1)
 p12 = input.bool(true, "12 Four Price Doji (FPD)",   group = grpP1)
 
-grpP2 = "Patterns — Double Candle (13–20)"
+grpP2 = "Patterns — Double Candle (13–25)"
 p13 = input.bool(true, "13 Bullish Engulfing (BEC)", group = grpP2)
 p14 = input.bool(true, "14 Bearish Engulfing (BRE)", group = grpP2)
 p15 = input.bool(true, "15 Bullish Harami (BUH)",    group = grpP2)
@@ -86,6 +86,18 @@ p17 = input.bool(true, "17 Harami Cross (HC)",       group = grpP2)
 p18 = input.bool(true, "18 Piercing Line (PL)",      group = grpP2)
 p19 = input.bool(true, "19 Dark Cloud Cover (DCC)",  group = grpP2)
 p20 = input.bool(true, "20 Tweezer Bottom (TWB)",    group = grpP2)
+p21 = input.bool(true, "21 Tweezer Top (TWT)",       group = grpP2)
+p22 = input.bool(true, "22 Matching Low (ML)",       group = grpP2)
+p23 = input.bool(true, "23 Matching High (MH)",      group = grpP2)
+p24 = input.bool(true, "24 Stick Sandwich (SSW)",    group = grpP2)
+p25 = input.bool(true, "25 Kicking Pattern (KCK)",   group = grpP2)
+
+grpP3 = "Patterns — Triple & Multi (26–45)"
+p26 = input.bool(true, "26 Morning Star (MS)",           group = grpP3)
+p27 = input.bool(true, "27 Evening Star (ES)",           group = grpP3)
+p28 = input.bool(true, "28 Morning Doji Star (MDS)",     group = grpP3)
+p29 = input.bool(true, "29 Evening Doji Star (EDS)",     group = grpP3)
+p30 = input.bool(true, "30 Three White Soldiers (TWS)",  group = grpP3)
 
 // ════════════════════════════ ANATOMY ENGINE ═══════════════════════════════
 atrV    = ta.atr(14)
@@ -260,6 +272,19 @@ hcShape      = longBody[1] and dojiShape and insideBody and not dragonShape and 
 plShape      = bearC[1] and longBody[1] and bullC and open < close[1] and close > prevBodyMid and close < open[1]
 dccShape     = bullC[1] and longBody[1] and bearC and open > close[1] and close < prevBodyMid and close > open[1]
 twbShape     = bearC[1] and bullC and math.abs(low - low[1]) <= atrV * 0.10
+twtShape     = bullC[1] and bearC and math.abs(high - high[1]) <= atrV * 0.10
+mlShape      = bearC[1] and bearC and math.abs(close - close[1]) <= atrV * 0.10
+mhShape      = bullC[1] and bullC and math.abs(open - open[1]) <= atrV * 0.10 and close <= close[1] + atrV * 0.2
+sswShape     = bearC[2] and bullC[1] and bearC and math.abs(close - close[2]) <= atrV * 0.10
+kckShape     = maruBearShp[1] and maruBullShp and bodyGapUp
+
+// Triple-candle shapes
+c1Mid3       = (open[2] + close[2]) / 2                 // candle-1 body midpoint in 3-candle patterns
+starShapeBu  = bearC[2] and longBody[2] and body[1] <= atrV * 0.35 and math.max(open[1], close[1]) < c1Mid3 and bullC and close > c1Mid3
+starShapeBe  = bullC[2] and longBody[2] and body[1] <= atrV * 0.35 and math.min(open[1], close[1]) > c1Mid3 and bearC and close < c1Mid3
+openInPrevBody(int off) =>
+    open[off] >= math.min(open[off + 1], close[off + 1]) and open[off] <= math.max(open[off + 1], close[off + 1])
+twsShape     = bullC and bullC[1] and bullC[2] and close > close[1] and close[1] > close[2] and body >= atrV * 0.5 and body[1] >= atrV * 0.5 and body[2] >= atrV * 0.5 and openInPrevBody(0) and openInPrevBody(1) and upW <= body * 0.3 and upW[1] <= body[1] * 0.3 and upW[2] <= body[2] * 0.3
 
 // Neutral-pattern trend context text
 ctxTxt = "Trend: " + (upTrend[1] ? "Uptrend" : downTrend[1] ? "Downtrend" : "Sideways") + " (context)"
@@ -325,6 +350,36 @@ if barstate.isconfirmed
     // 20 TWEEZER BOTTOM — bullish reversal after downtrend · Important · H1 H4 D1
     if twbShape and downTrend[2]
         fire(p20, 2, "I", "BR", 1, "60,240,D", "TWB", "Tweezer Bottom", "Trend: Downtrend ✓", "A red candle then a green candle sharing identical (or nearly identical) lows — price rejected twice from the same level; a solid floor with real demand defending it.", "SL: a few ticks below the twin lows  |  TP: nearest resistance; double-rejection structures often start long swings", "★ Good (67%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 21 TWEEZER TOP — bearish reversal after uptrend · Important · H1 H4 D1
+    if twtShape and upTrend[2]
+        fire(p21, 2, "I", "SR", -1, "60,240,D", "TWT", "Tweezer Top", "Trend: Uptrend ✓", "A green candle then a red candle with identical highs — price fails twice to break the same ceiling; a distribution signal at the peak.", "SL: a few ticks above the twin high level  |  TP: nearest support or last swing low", "★ Good (67%)", "H1 · H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 22 MATCHING LOW — bullish reversal after downtrend · Rare · H4 D1
+    if mlShape and downTrend[2]
+        fire(p22, 2, "R", "BR", 1, "240,D", "ML", "Matching Low", "Trend: Downtrend ✓", "Two consecutive bearish candles closing at the same level after a downtrend — sellers try twice but cannot make a lower close; the foundation for an upside reversal.", "SL: below the twin low/close  |  TP: nearest resistance; use swing structure for extended targets", "★ Fair (62%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 23 MATCHING HIGH — bearish reversal after uptrend · Rare · H4 D1
+    if mhShape and upTrend[2]
+        fire(p23, 2, "R", "SR", -1, "240,D", "MH", "Matching High", "Trend: Uptrend ✓", "Two consecutive bullish candles opening at the same level after an uptrend — buyers try twice from the same starting point but cannot push higher.", "SL: above the high of both candles  |  TP: nearest support; trail as price starts making lower lows", "★ Fair (62%)", "H4 · D1", math.max(high, high[1]), math.min(low, low[1]))
+    // 24 STICK SANDWICH — bullish reversal after downtrend · Rare · D1 (3-candle, filed in double group)
+    if sswShape and downTrend[3]
+        fire(p24, 2, "R", "BR", 1, "D", "SSW", "Stick Sandwich", "Trend: Downtrend ✓", "Red, then green, then red closing EXACTLY at the first candle's close — the green candle is sandwiched. Sellers return twice to the same level but fail to break lower; quiet accumulation.", "SL: below the twin close level  |  TP: nearest resistance; rare pattern — manage expectations with staged targets", "★ Fair (60%)", "D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 25 KICKING PATTERN (bullish) — gap reversal · Rare · D1
+    if kckShape and downTrend[2]
+        fire(p25, 2, "R", "BR", 1, "D", "KCK", "Kicking Pattern (Bullish)", "Trend: End of downtrend ✓", "A bearish marubozu, then a gap up into a bullish marubozu with no body overlap — a drastic sentiment shift; one of the strongest gap-based signals. Rare in spot forex (needs a market gap).", "SL: below the gap's lower edge (aggressive) or the second marubozu low (conservative)  |  TP: project the gap width from the breakout; next resistance as extended target", "★ Good (72%)", "D1 (market gap)", math.max(high, high[1]), math.min(low, low[1]))
+    // 26 MORNING STAR — bullish reversal after mature downtrend · Must · H4 D1
+    if starShapeBu and not dojiShape[1] and downTrend[3]
+        fire(p26, 3, "M", "BR", 1, "240,D", "MS", "Morning Star", "Trend: Mature downtrend ✓", "A long red candle, a small star dropping below it, then a long green candle driving back above 50% of the first body — a complete story of fall, hesitation, and rise. Star color is free.", "SL: below candle 2 (star) low  |  TP: nearest resistance then swing high; the pattern width can be projected as a target", "★ High (76%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 27 EVENING STAR — bearish reversal after mature uptrend · Must · H4 D1
+    if starShapeBe and not dojiShape[1] and upTrend[3]
+        fire(p27, 3, "M", "SR", -1, "240,D", "ES", "Evening Star", "Trend: Mature uptrend ✓", "A long green candle, a small star at the peak, then a long red candle driving below 50% of the first body — the perfect mirror of the morning star. Star color is free.", "SL: above candle 2 (star) high  |  TP: nearest support then swing low; project candle 1's height as the minimum target", "★ High (76%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 28 MORNING DOJI STAR — bullish reversal after long downtrend · Important · H4 D1
+    if starShapeBu and dojiShape[1] and downTrend[3]
+        fire(p28, 3, "I", "BR", 1, "240,D", "MDS", "Morning Doji Star", "Trend: Long downtrend ✓", "A premium morning star: the middle candle is a doji — perfect equilibrium at the lowest point, proving sellers cannot even close lower, before buyers take over with a strong third candle.", "SL: below the doji low  |  TP: nearest resistance; three-phase reversal structures often deliver long moves", "★ High (78%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 29 EVENING DOJI STAR — bearish reversal after long uptrend · Important · H4 D1
+    if starShapeBe and dojiShape[1] and upTrend[3]
+        fire(p29, 3, "I", "SR", -1, "240,D", "EDS", "Evening Doji Star", "Trend: Long uptrend ✓", "A premium evening star: the doji at the peak marks buyer euphoria fully evaporating — perfect equilibrium before the third red candle drops the price.", "SL: above the doji high  |  TP: nearest support then swing low; candle 1 width as the target projection", "★ High (78%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
+    // 30 THREE WHITE SOLDIERS — bullish trend ignition · Must · H4 D1
+    if twsShape and not upTrend[3]
+        fire(p30, 3, "M", "BR", 1, "240,D", "TWS", "Three White Soldiers", downTrend[3] ? "Trend: End of downtrend ✓" : "Trend: Consolidation breakout ✓", "Three consecutive long bullish candles, each opening inside the previous body and closing near its high with rising closes — buyer commitment across three sessions; the start of a new uptrend.", "SL: below candle 1 low (swing) or the last candle's midpoint  |  TP: 1x the pattern height, or trail following higher lows", "★ High (75%)", "H4 · D1", math.max(high, math.max(high[1], high[2])), math.min(low, math.min(low[1], low[2])))
 
 // ═══════════════ STATE UPDATES: CONFIRM / FAIL / EXPIRE ════════════════════
 if barstate.isconfirmed and insts.size() > 0
