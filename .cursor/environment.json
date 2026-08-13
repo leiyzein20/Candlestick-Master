@@ -1,0 +1,5 @@
+{
+  "name": "Candlestick-Master",
+  "user": "ubuntu",
+  "install": "npm ci"
+}
